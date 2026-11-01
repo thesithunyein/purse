@@ -37,7 +37,7 @@ Set both ids in `.env`. They must differ.
 | plan | loop model | none | turns the task into at most three steps |
 | research | loop model | `otari_web_search` | gathers facts and cites them |
 | verify | loop model | `otari_code_execution` | checks any number by running code |
-| settle | settle model | none | releases or slashes the bond |
+| settle | settle model | none | decides whether the run produced a usable answer |
 | ledger | none | none | books the cost and returns the remainder |
 
 Before every stage the ledger checks that the bond can cover that kind of call,
@@ -54,10 +54,11 @@ reserves `PURSE_RESERVE_PLAIN_USD`; a tool or MCP call reserves
 - MCP integration: the policy stage connects to an MCP server inline, so the
   rulebook is read over MCP instead of living in the prompt.
 - Web search: the research stage runs `otari_web_search`.
-- Budgets and spending limits: an Otari budget plus spend ceiling caps the
-  workspace, and a refused call ends the run.
-- Per user budgets: one workspace key per user, each with its own budget, so
-  Alice and Bob do not share a meter.
+- Budgets and spending limits: the bond is a hard per request reserve enforced by
+  the ledger before every call, so a run physically cannot spend past it. An
+  Otari budget and spend ceiling cap the workspace above that.
+- Per user budgets: one workspace key per user, each capped by its own Otari
+  budget and metered by its own bond, so Alice and Bob do not share a meter.
 
 ## What a live run costs
 
@@ -100,13 +101,16 @@ is simulated and the page says so in a red bar.
 
 1. Normal run. The log shows the small model reading the rulebook over MCP,
    planning, researching and verifying, then the large model settling, with the
-   bond falling on every row.
-2. Guardrail trip. Use the second preset. The guard stage refuses, nothing is
-   spent on the task, and the bond is slashed.
-3. Meter empty. Set the bond below the tool reserve and run. The ledger refuses
-   before the expensive call, the run stops, and the remainder is returned.
-4. Second user. Run as Bob. His call goes out on his own key with his own
-   budget, and his bond is metered separately from Alice's.
+   bond falling on every row. Ends released with about 0.178 of a 0.20 bond.
+2. Rule violation. Click the preset. The guard stage matches the task against
+   the rulebook in code, refuses before any model call, and takes the whole
+   remaining bond. Nothing is spent on the task itself.
+3. Meter empty. Set the bond to 0.035 and run. The policy, plan and research
+   stages run, then verify is refused because 0.03 is reserved for a code
+   execution call and only 0.0229 is left. The run stops there and that same
+   0.0229 comes back unspent.
+4. Second user. Click Run as Bob. His call goes out on his own key with his own
+   budget, his meter falls, and Alice's stays at her full bond.
 
 ## Notes
 

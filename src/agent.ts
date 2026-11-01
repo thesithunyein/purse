@@ -17,26 +17,26 @@ const SYSTEM = [
   "Never invent chain state, prices, or transaction hashes. If you need a number, use a tool.",
 ].join(" ");
 
-function parseDecision(text: string): { verdict: "release" | "slash"; reason: string; penaltyUsd: number } {
+type Decision = { factsComplete: boolean; reason: string };
+
+function parseDecision(text: string): Decision {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start >= 0 && end > start) {
     try {
       const parsed = JSON.parse(text.slice(start, end + 1)) as {
-        verdict?: string;
-        reason?: string;
-        penaltyUsd?: number;
+        reason?: unknown;
+        factsComplete?: unknown;
       };
       return {
-        verdict: parsed.verdict === "slash" ? "slash" : "release",
+        factsComplete: parsed.factsComplete === true,
         reason: typeof parsed.reason === "string" ? parsed.reason : "no reason given",
-        penaltyUsd: typeof parsed.penaltyUsd === "number" ? parsed.penaltyUsd : 0,
       };
     } catch {
       // fall through to the safe default
     }
   }
-  return { verdict: "release", reason: "settlement reply was not parseable", penaltyUsd: 0 };
+  return { factsComplete: false, reason: "settlement reply was not parseable" };
 }
 
 export class Run {
@@ -157,8 +157,7 @@ export class Run {
     return result.text;
   }
 
-  async execute(): Promise<RunOutcome> {
-    try {
+  async execute(): Promise<RunOutcome> {    try {
       await this.pipeline();
     } catch (error) {
       if (error instanceof BudgetExhausted) {
@@ -225,7 +224,14 @@ export class Run {
       config.loopModel,
       [
         { role: "system", content: SYSTEM },
-        { role: "user", content: `Task: ${this.task}\n\nReturn a plan of at most three steps, one per line.` },
+        {
+          role: "user",
+          content: [
+            `Task: ${this.task}`,
+            ...(policy ? [`Rule from the rulebook: ${policy}`] : []),
+            "Return a plan of at most three steps, one per line, that respects that rule.",
+          ].join("\n\n"),
+        },
       ],
       undefined,
       "planning with the small model",
@@ -237,23 +243,22 @@ export class Run {
       config.loopModel,
       [
         { role: "system", content: SYSTEM },
-        { role: "user", content: `Task: ${this.task}\n\nPlan:\n${plan}\n\nGather the facts you need. Cite what you used.` },
+        { role: "user", content: `Task: ${this.task}\n\nPlan:\n${plan}\n\nSearch for the facts you need, then answer in two lines.\nLine 1: at most two sentences of findings.\nLine 2: start with FACTS: and list the numbers you found with their source.` },
       ],
       ["otari_web_search"],
       "researching with web search",
-      { maxTokens: 300 },
+      { maxTokens: 500 },
     );
 
     const verified = await this.stage(
       "verify",
       config.loopModel,
       [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: `Task: ${this.task}\n\nFacts:\n${research}\n\nCheck any number in the facts by running code. Report what the code returned.` },
+        { role: "user", content: `Task: ${this.task}\n\nFacts:\n${research}\n\nUse the code execution tool to compute the arithmetic in this task. Then answer in two lines.\nLine 1: what the code printed.\nLine 2: start with VERIFIED: and give the computed result.` },
       ],
       ["otari_code_execution"],
       "verifying numbers with code execution",
-      { maxTokens: 300 },
+      { maxTokens: 500 },
     );
 
     const decision = await this.stage(
@@ -264,13 +269,13 @@ export class Run {
         {
           role: "user",
           content: [
-            "You make the settlement decision for this run.",
+            "You settle this run by answering one question: did the work produce an answer the task can be paid for?",
             `Task: ${this.task}`,
-            ...(policy ? [`Operating rule: ${policy}`] : []),
-            `Facts: ${research}`,
+            `Facts gathered: ${research}`,
             `Verification: ${verified}`,
-            'Reply with JSON only, no prose: {"verdict":"release"|"slash","reason":"one sentence","penaltyUsd":number}',
-            "Slash only if the work is wrong or a rule was broken.",
+            "factsComplete is true when the facts and the verification together answer the task with concrete numbers, a concrete cost, or a clear yes or no.",
+            "It is false only when the run has no usable answer at all.",
+            'Answer with JSON only, no prose: {"factsComplete":true|false,"reason":"one sentence"}',
           ].join("\n\n"),
         },
       ],
@@ -280,23 +285,26 @@ export class Run {
     );
 
     const parsed = parseDecision(decision);
-    if (parsed.verdict === "slash") {
-      const remaining = this.ledger.remaining(this.user);
-      const penalty = parsed.penaltyUsd > 0 ? parsed.penaltyUsd : remaining;
-      this.ledger.slash(this.user, penalty);
-      this.sync();
-      this.emit({ stage: "ledger", status: "refused", costUsd: penalty, remainingUsd: this.ledger.remaining(this.user), note: parsed.reason });
-      this.finish("slashed", parsed.reason);
+
+    this.sync();
+    if (!parsed.factsComplete) {
+      this.emit({
+        stage: "ledger",
+        status: "info",
+        costUsd: 0,
+        remainingUsd: this.ledger.remaining(this.user),
+        note: `${parsed.reason.replace(/[.\s]+$/, "")}. nothing was paid out and the bond returns unspent.`,
+      });
+      this.finish("stopped", parsed.reason);
       return;
     }
 
-    this.sync();
     this.emit({
       stage: "ledger",
       status: "ok",
       costUsd: 0,
       remainingUsd: this.ledger.remaining(this.user),
-      note: `${parsed.reason}. unspent bond returned.`,
+      note: `${parsed.reason.replace(/[.\s]+$/, "")}. unspent bond returned.`,
     });
     this.finish("released", parsed.reason);
   }
