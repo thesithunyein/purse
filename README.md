@@ -55,10 +55,14 @@ reserves `PURSE_RESERVE_PLAIN_USD`; a tool or MCP call reserves
   rulebook is read over MCP instead of living in the prompt.
 - Web search: the research stage runs `otari_web_search`.
 - Budgets and spending limits: the bond is a hard per request reserve enforced by
-  the ledger before every call, so a run physically cannot spend past it. An
-  Otari budget and spend ceiling cap the workspace above that.
-- Per user budgets: one workspace key per user, each capped by its own Otari
-  budget and metered by its own bond, so Alice and Bob do not share a meter.
+  the ledger before every call, so a run physically cannot spend past it. Above
+  it, an Otari budget plus a spend ceiling caps the workspace and refuses a call.
+- Per user budgets: one workspace key per user, each with its own budget and its
+  own spend ceiling and its own bond, so Alice and Bob do not share a meter.
+
+Both caps were exercised live. Bob's key hit its budget and the gateway answered
+`API key has exceeded budget limit` while his bond still showed 0.0879 left, and
+Alice's key kept running.
 
 ## What a live run costs
 
@@ -111,6 +115,10 @@ is simulated and the page says so in a red bar.
    0.0229 comes back unspent.
 4. Second user. Click Run as Bob. His call goes out on his own key with his own
    budget, his meter falls, and Alice's stays at her full bond.
+5. Per user cap. Bob's key has a 0.05 monthly budget with a spend ceiling
+   holding it. Once he has spent it, Otari refuses the next call with "API key
+   has exceeded budget limit" while his bond still shows money left, so the
+   platform cap is what stops him and Alice is untouched.
 
 ## Notes
 

@@ -165,7 +165,7 @@ export class Run {
         this.finish("stopped", `meter empty: ${error.message}`);
       } else if (error instanceof OtariError) {
         this.emit({ stage: "ledger", status: "error", note: `gateway refused the call: ${error.detail}` });
-        this.finish("stopped", `gateway error ${error.status}`);
+        this.finish("stopped", error.detail || `gateway error ${error.status}`);
       } else {
         const message = error instanceof Error ? error.message : String(error);
         this.emit({ stage: "ledger", status: "error", note: message });
