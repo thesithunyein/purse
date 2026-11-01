@@ -216,6 +216,10 @@ export class Run {
         )
       : "";
 
+    if (policy) {
+      this.emit({ stage: "policy", status: "info", note: policy.replace(/\s+/g, " ").slice(0, 180) });
+    }
+
     const plan = await this.stage(
       "plan",
       config.loopModel,

@@ -29,7 +29,7 @@ export const config = {
 
   // Small open-weight model for the loop, larger one for the call that moves money.
   // Pull real ids from GET /api/v1/models. These two must be different ids.
-  loopModel: env("PURSE_LOOP_MODEL", "alibaba/qwen3.5-9b"),
+  loopModel: env("PURSE_LOOP_MODEL", "alibaba/qwen3-30b-a3b-instruct-2507"),
   settleModel: env("PURSE_SETTLE_MODEL", "alibaba/qwen3.6-35b-a3b"),
 
   // One Otari workspace key per user. Per-user budgets are the point: each key

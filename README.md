@@ -47,7 +47,7 @@ reserves `PURSE_RESERVE_PLAIN_USD`; a tool or MCP call reserves
 
 ## Otari capabilities exercised
 
-- Multiple models serving distinct roles: `qwen3.5-9b` runs the loop,
+- Multiple models serving distinct roles: `qwen3-30b-a3b-instruct-2507` runs the loop,
   `qwen3.6-35b-a3b` makes the settlement call. Both are open weight.
 - Code execution: the verify stage runs `otari_code_execution` so a number is
   checked rather than guessed.
@@ -65,7 +65,7 @@ Measured against the hosted gateway with the defaults in `.env`:
 
 | Call | Cost |
 |---|---|
-| plan, plain chat on the 9b model | about 0.00004 |
+| plan, plain chat on the instruct model | about 0.00002 |
 | policy, one MCP turn | about 0.0008 |
 | verify, one code execution call | about 0.020 |
 | settle, 35b model | about 0.00001 |
