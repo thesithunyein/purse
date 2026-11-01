@@ -7,12 +7,18 @@ export type Msg = {
 
 export type ToolType = "otari_web_search" | "otari_web_fetch" | "otari_code_execution";
 
+export type McpServer = {
+  name: string;
+  url: string;
+  purposeHint?: string;
+};
+
 export type ChatRequest = {
   apiKey: string;
   model: string;
   messages: Msg[];
   tools?: ToolType[];
-  mcpServerIds?: string[];
+  mcpServers?: McpServer[];
   maxTokens?: number;
 };
 
@@ -27,7 +33,7 @@ export type ChatResult = {
   toolCalls: number;
 };
 
-export type Stage = "guard" | "plan" | "research" | "verify" | "settle" | "ledger";
+export type Stage = "guard" | "policy" | "plan" | "research" | "verify" | "settle" | "ledger";
 
 export type LogStatus = "start" | "ok" | "info" | "refused" | "error";
 

@@ -18,7 +18,7 @@ app.get("/api/state", (_req, res) => {
     mock: config.mock,
     loopModel: config.loopModel,
     settleModel: config.settleModel,
-    mcpServerIds: config.mcpServerIds,
+    mcpServers: config.mcpServers.map((server) => ({ name: server.name, url: server.url })),
     accounts: ledger.list().map((account) => ({
       id: account.id,
       label: account.label,

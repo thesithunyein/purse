@@ -27,6 +27,19 @@ function textFromContent(content: unknown): string {
   return parts.join("\n").trim();
 }
 
+// The gateway bills cost_usd as a decimal string, so Number() it rather than
+// trusting the JSON type. A miss here means the ledger silently charges zero.
+function costFromUsage(usage: unknown): number {
+  const record = (usage ?? {}) as { cost_usd?: unknown };
+  const raw = record.cost_usd;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  if (typeof raw === "string") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 function countToolCalls(payload: Record<string, unknown>): number {
   const direct = payload.otari_tool_calls;
   if (Array.isArray(direct)) return direct.length;
@@ -46,8 +59,12 @@ export async function otariChat(req: ChatRequest, baseUrl: string, mock: boolean
   if (req.tools && req.tools.length > 0) {
     body.tools = req.tools.map((type) => ({ type }));
   }
-  if (req.mcpServerIds && req.mcpServerIds.length > 0) {
-    body.mcp_server_ids = req.mcpServerIds;
+  if (req.mcpServers && req.mcpServers.length > 0) {
+    body.mcp_servers = req.mcpServers.map((server) => ({
+      name: server.name,
+      url: server.url,
+      ...(server.purposeHint ? { purpose_hint: server.purposeHint } : {}),
+    }));
   }
   if (req.maxTokens !== undefined) {
     body.max_tokens = req.maxTokens;
@@ -65,12 +82,14 @@ export async function otariChat(req: ChatRequest, baseUrl: string, mock: boolean
   const raw = await response.text();
 
   if (!response.ok) {
-    let detail = raw;
+    // The edge can answer with an HTML error page rather than the gateway JSON,
+    // so keep the detail short enough to read in the run log.
+    let detail = raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
     try {
-      const parsed = JSON.parse(raw) as { detail?: string };
+      const parsed = JSON.parse(raw) as { detail?: unknown };
       if (typeof parsed.detail === "string") detail = parsed.detail;
     } catch {
-      // leave raw body in place
+      // leave the flattened body in place
     }
     throw new OtariError(response.status, detail || response.statusText);
   }
@@ -87,7 +106,6 @@ export async function otariChat(req: ChatRequest, baseUrl: string, mock: boolean
   const usage = (payload.usage ?? {}) as {
     prompt_tokens?: number;
     completion_tokens?: number;
-    cost_usd?: number;
   };
 
   return {
@@ -95,7 +113,7 @@ export async function otariChat(req: ChatRequest, baseUrl: string, mock: boolean
     requestedModel: req.model,
     servedModel: String(payload.model ?? req.model),
     text: textFromContent(first?.message?.content),
-    costUsd: typeof usage.cost_usd === "number" ? usage.cost_usd : 0,
+    costUsd: costFromUsage(payload.usage),
     promptTokens: usage.prompt_tokens ?? 0,
     completionTokens: usage.completion_tokens ?? 0,
     toolCalls: countToolCalls(payload),

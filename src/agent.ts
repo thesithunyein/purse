@@ -90,18 +90,50 @@ export class Run {
     messages: Msg[],
     tools: ToolType[] | undefined,
     note: string,
+    extra?: { maxTokens?: number; useMcp?: boolean },
   ): Promise<string> {
     const apiKey = this.ledger.get(this.user).apiKey;
     if (!apiKey && !config.mock) throw new Error(`no Otari key configured for ${this.user}`);
 
-    this.ledger.requireReserve(this.user, config.callReserveUsd);
+    const mcpServers = extra?.useMcp ? config.mcpServers : undefined;
+    const reservedToolCall = (tools?.length ?? 0) > 0 || (mcpServers?.length ?? 0) > 0;
+    try {
+      this.ledger.requireReserve(this.user, reservedToolCall ? config.reserveToolUsd : config.reservePlainUsd);
+    } catch (error) {
+      if (error instanceof BudgetExhausted) {
+        this.emit({ stage, status: "refused", requestedModel: model, tools, note: error.message });
+      }
+      throw error;
+    }
     this.emit({ stage, status: "start", requestedModel: model, tools, note });
 
-    const result = await otariChat(
-      { apiKey, model, messages, tools, mcpServerIds: config.mcpServerIds },
-      config.baseUrl,
-      config.mock,
-    );
+    const call = () =>
+      otariChat(
+        {
+          apiKey,
+          model,
+          messages,
+          tools,
+          mcpServers,
+          maxTokens: extra?.maxTokens,
+        },
+        config.baseUrl,
+        config.mock,
+      );
+
+    let result;
+    try {
+      result = await call();
+    } catch (error) {
+      // A tool loop that outruns the edge timeout comes back as 502 or 504 with
+      // an HTML page. One retry covers it, and the attempt stays in the log.
+      if (error instanceof OtariError && (error.status === 502 || error.status === 504)) {
+        this.emit({ stage, status: "info", note: `edge returned ${error.status}, retrying once` });
+        result = await call();
+      } else {
+        throw error;
+      }
+    }
 
     const remaining = this.ledger.debit(this.user, result.costUsd);
     this.sync();
@@ -167,6 +199,23 @@ export class Run {
 
     this.emit({ stage: "guard", status: "ok", note: "no rule matched" });
 
+    const policy = config.mcpServers.length > 0
+      ? await this.stage(
+          "policy",
+          config.loopModel,
+          [
+            { role: "system", content: SYSTEM },
+            {
+              role: "user",
+              content: `Task: ${this.task}\n\nRead the repository spending rules. Reply with the one rule that applies here, in one sentence.`,
+            },
+          ],
+          undefined,
+          `reading the rulebook over MCP from ${config.mcpServers[0]?.name}`,
+          { maxTokens: 120, useMcp: true },
+        )
+      : "";
+
     const plan = await this.stage(
       "plan",
       config.loopModel,
@@ -176,6 +225,7 @@ export class Run {
       ],
       undefined,
       "planning with the small model",
+      { maxTokens: 200 },
     );
 
     const research = await this.stage(
@@ -187,6 +237,7 @@ export class Run {
       ],
       ["otari_web_search"],
       "researching with web search",
+      { maxTokens: 300 },
     );
 
     const verified = await this.stage(
@@ -198,6 +249,7 @@ export class Run {
       ],
       ["otari_code_execution"],
       "verifying numbers with code execution",
+      { maxTokens: 300 },
     );
 
     const decision = await this.stage(
@@ -210,6 +262,7 @@ export class Run {
           content: [
             "You make the settlement decision for this run.",
             `Task: ${this.task}`,
+            ...(policy ? [`Operating rule: ${policy}`] : []),
             `Facts: ${research}`,
             `Verification: ${verified}`,
             'Reply with JSON only, no prose: {"verdict":"release"|"slash","reason":"one sentence","penaltyUsd":number}',
@@ -219,6 +272,7 @@ export class Run {
       ],
       undefined,
       "settling with the large model",
+      { maxTokens: 200 },
     );
 
     const parsed = parseDecision(decision);

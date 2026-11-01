@@ -195,7 +195,10 @@
         const data = await res.json();
         document.getElementById("mockbar").style.display = data.mock ? "block" : "none";
         document.getElementById("models").textContent =
-          "loop " + data.loopModel + "  |  settle " + data.settleModel;
+          "loop " + data.loopModel + "  |  settle " + data.settleModel +
+          (data.mcpServers && data.mcpServers.length
+            ? "  |  mcp " + data.mcpServers[0].name
+            : "  |  mcp off");
 
         const accounts = document.getElementById("accounts");
         accounts.innerHTML = "";

@@ -21,13 +21,15 @@ function env(name: string, fallback: string): string {
   return value === undefined || value === "" ? fallback : value;
 }
 
+const mcpUrl = env("PURSE_MCP_URL", "");
+
 export const config = {
   port: Number(env("PORT", "3000")),
   baseUrl: env("OTARI_BASE_URL", "https://otari.ai/api/v1"),
 
   // Small open-weight model for the loop, larger one for the call that moves money.
   // Pull real ids from GET /api/v1/models. These two must be different ids.
-  loopModel: env("PURSE_LOOP_MODEL", "alibaba/qwen3.6-35b-a3b"),
+  loopModel: env("PURSE_LOOP_MODEL", "alibaba/qwen3.5-9b"),
   settleModel: env("PURSE_SETTLE_MODEL", "alibaba/qwen3.6-35b-a3b"),
 
   // One Otari workspace key per user. Per-user budgets are the point: each key
@@ -37,26 +39,33 @@ export const config = {
       id: "alice",
       label: "Alice",
       apiKey: env("PURSE_KEY_ALICE", ""),
-      bondUsd: Number(env("PURSE_BOND_ALICE", "0.01")),
+      bondUsd: Number(env("PURSE_BOND_ALICE", "0.20")),
     },
     {
       id: "bob",
       label: "Bob",
       apiKey: env("PURSE_KEY_BOB", ""),
-      bondUsd: Number(env("PURSE_BOND_BOB", "0.01")),
+      bondUsd: Number(env("PURSE_BOND_BOB", "0.02")),
     },
   ],
 
-  // MCP servers are registered in the workspace under Tools -> MCP servers.
-  // Comma separated ids. Empty means no MCP stage tool is attached.
-  mcpServerIds: env("PURSE_MCP_SERVER_IDS", "")
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean),
+  // Inline MCP server. The gateway connects to this URL on the request itself,
+  // so nothing has to be registered in the dashboard first.
+  mcpServers: mcpUrl
+    ? [
+        {
+          name: env("PURSE_MCP_NAME", "rulebook"),
+          url: mcpUrl,
+          purposeHint: env("PURSE_MCP_HINT", "Use for the spending policy this agent must follow"),
+        },
+      ]
+    : [],
 
-  // Reserve required before each model call so the meter runs out predictably
-  // instead of mid-request.
-  callReserveUsd: Number(env("PURSE_CALL_RESERVE_USD", "0.0005")),
+  // A live code execution call bills around $0.02, roughly 400x a plain chat
+  // call, so each kind of stage reserves its own worst case up front. Without
+  // this the agent can spend past a bond it could never have afforded.
+  reservePlainUsd: Number(env("PURSE_RESERVE_PLAIN_USD", "0.001")),
+  reserveToolUsd: Number(env("PURSE_RESERVE_TOOL_USD", "0.03")),
 
   mock: env("PURSE_MOCK", "0") === "1",
 };
