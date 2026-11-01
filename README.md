@@ -48,7 +48,7 @@ reserves `PURSE_RESERVE_PLAIN_USD`; a tool or MCP call reserves
 ## Otari capabilities exercised
 
 - Multiple models serving distinct roles: `qwen3-30b-a3b-instruct-2507` runs the loop,
-  `qwen3.6-35b-a3b` makes the settlement call. Both are open weight.
+  `qwen3-next-80b-a3b-instruct` makes the settlement call. Both are open weight.
 - Code execution: the verify stage runs `otari_code_execution` so a number is
   checked rather than guessed.
 - MCP integration: the policy stage connects to an MCP server inline, so the
@@ -65,14 +65,16 @@ Measured against the hosted gateway with the defaults in `.env`:
 
 | Call | Cost |
 |---|---|
-| plan, plain chat on the instruct model | about 0.00002 |
-| policy, one MCP turn | about 0.0008 |
-| verify, one code execution call | about 0.020 |
-| settle, 35b model | about 0.00001 |
+| plan, plain chat on the 30B model | about 0.00002 |
+| policy, one MCP turn | about 0.0013 |
+| research, one web search call | about 0.0104 |
+| verify, one code execution call | about 0.0102 |
+| settle, 80B instruct model | about 0.00008 |
 
-A full run lands near 0.021 USD, and almost all of it is the code execution
-call. That is why the reserve is per stage rather than one flat number: a bond
-that covers four chat calls does not cover one code execution call.
+A full run lands near 0.022 USD and takes about eighteen seconds, and almost all
+of it is the two tool calls. That is why the reserve is per stage rather than one
+flat number: a bond that covers twenty chat calls does not cover one web search
+plus one code execution.
 
 ## Run it
 

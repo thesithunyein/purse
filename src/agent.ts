@@ -229,7 +229,7 @@ export class Run {
       ],
       undefined,
       "planning with the small model",
-      { maxTokens: 200 },
+      { maxTokens: 300 },
     );
 
     const research = await this.stage(
@@ -276,7 +276,7 @@ export class Run {
       ],
       undefined,
       "settling with the large model",
-      { maxTokens: 200 },
+      { maxTokens: 300 },
     );
 
     const parsed = parseDecision(decision);
