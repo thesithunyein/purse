@@ -1,0 +1,28 @@
+# One-click deploy: Render dashboard -> New -> Blueprint -> pick this repo.
+# Fill the secret values in the dashboard; they are never stored here.
+services:
+  - type: web
+    name: purse
+    runtime: docker
+    plan: free
+    branch: otari
+    healthCheckPath: /healthz
+    envVars:
+      - key: PURSE_ACCESS_CODE
+        sync: false
+      - key: PURSE_KEY_ALICE
+        sync: false
+      - key: PURSE_KEY_BOB
+        sync: false
+      - key: PURSE_MCP_URL
+        sync: false
+      - key: PURSE_GUARDRAIL_PROFILE
+        sync: false
+      - key: PURSE_LOOP_MODEL
+        value: alibaba/qwen3-30b-a3b-instruct-2507
+      - key: PURSE_SETTLE_MODEL
+        value: alibaba/qwen3-next-80b-a3b-instruct
+      - key: PURSE_BOND_ALICE
+        value: "0.20"
+      - key: PURSE_BOND_BOB
+        value: "0.10"

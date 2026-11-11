@@ -36,9 +36,12 @@ That makes three endings, and all three are things a viewer can watch happen:
 
 | Ending | Trigger | What happens to the bond |
 |---|---|---|
-| Released | The settlement model says the work produced a usable answer | The unspent remainder returns |
-| Slashed | A rule in the rulebook is matched before any model call | The whole remaining bond is taken |
-| Stopped | The bond cannot cover the next call, or Otari refuses on its own cap | The remainder returns unspent |
+| Released | The settlement model says the work produced a usable answer | Nothing is taken; the remainder stays in the bond |
+| Slashed | Purse's rulebook matches the task, or Otari's guardrail blocks a call | The whole remaining bond is taken |
+| Stopped | Purse's reserve check, Otari's budget gate, or a "no usable answer" settlement | Billed inference stays spent; the remainder stays in the bond |
+
+The run log names the gate that ended each run: `purse rulebook`, `purse reserve`,
+`otari guardrail`, `otari budget gate`, or `settle model`.
 
 ## How it works
 
@@ -85,7 +88,7 @@ sequenceDiagram
 | policy | loop model | MCP server | reads `POLICY.md` over MCP from the public repo, so the rules sit outside the model and outside the prompt |
 | plan | loop model | none | turns the task into at most three steps that respect the rule it just read |
 | research | loop model | `otari_web_search` | gathers facts and ends with a `FACTS:` line |
-| verify | loop model | `otari_code_execution` | runs the arithmetic and ends with a `VERIFIED:` line |
+| verify | loop model | `otari_code_execution` | runs the arithmetic and ends with a `VERIFIED:` line. Its input contains the research output, so Otari's guardrail screens web content before the agent acts on it |
 | settle | settle model | none | answers one boolean: did this run produce a usable answer |
 | ledger | none | none | books the cost and returns or keeps the remainder |
 
@@ -120,6 +123,10 @@ is always the bond.
 | Code execution | verify stage | a billed row and a verified number |
 | Budgets and spending limits | ledger reserve, plus an Otari budget with a spend ceiling | a refusal with the remainder still in the bond |
 | Per-user budgets | one workspace key per user, each with its own budget and ceiling | Bob refused, Alice untouched |
+| Budget refusals | `Otari-Error-Code: budget_exceeded` and `Otari-Budget-Scope` are read | the run ends `stopped by otari budget gate` with its scope |
+| End users (optional) | `PURSE_SERVICE_KEY`: one service key, each bond holder is an Otari end user (`user` field, `Otari-End-User-Budget` header) | the key's End users page in the dashboard |
+| Guardrails | `PURSE_GUARDRAIL_PROFILE` is sent on every call in block mode; `guardrail_violation` slashes the bond | `slashed by otari guardrail`, and a `guardrail ok` tag on calls that passed |
+| Routing headers | `Otari-Model`, `Otari-Provider`, `Otari-Fallback`, `Otari-Attempt-Count` | a `fallback` tag on the row. Setup is in [routing/README.md](routing/README.md) |
 
 Both caps were exercised live. Bob's key hit its own budget and the gateway
 answered `API key has exceeded budget limit` while his bond still showed 0.0879
@@ -161,7 +168,21 @@ npm run dev
 Open http://localhost:3000.
 
 To work on the interface without burning calls, set `PURSE_MOCK=1`. Every call is
-simulated and the page says so in a red bar.
+simulated and the page says so in a red bar. Mock mode also imitates a block-mode
+guardrail, so all three endings can be shown offline.
+
+```bash
+npm test          # ledger, gateway client and run endings, with fetch stubbed
+npm run typecheck
+```
+
+## Deploy
+
+`render.yaml` deploys the `otari` branch as a Docker service on Render
+(New → Blueprint). Set `PURSE_ACCESS_CODE` before anything else: the page asks
+for the code, and every `/api` route refuses requests without it, so strangers
+cannot spend the bonds. Keys and the code go in the Render dashboard, never in
+the repo.
 
 ## Demonstrating each capability
 
@@ -178,20 +199,32 @@ simulated and the page says so in a red bar.
    budget, his meter falls, and Alice's stays at her full bond.
 5. **Per-user cap.** Once Bob has spent his key budget, Otari refuses the next call
    with its own message while his bond still shows money left.
+6. **Injection Otari catches.** With `PURSE_GUARDRAIL_PROFILE` set, click
+   Injection (Otari guardrail). The task gets past Purse's regexes, Otari's
+   guardrail blocks the first call before any provider runs, and the bond is
+   slashed. The verdict reads `slashed by otari guardrail`.
 
-## What this deliberately does not do
+## Guardrails, routing and end users: what is set up where
 
-**Routing policies and fallbacks.** The served model is logged next to the
-requested one, so a fallback would be visible, but routing needs upstream provider
-keys in Organization, and managed models are skipped with
-`managed_credential_unsupported`. Purse does not claim this capability.
+**Guardrails.** Earlier, caller-supplied profiles came back `502`. That is
+Otari failing closed when a block-mode profile has no guardrail behind it.
+Purse now sends `on_unavailable: monitor` by default, so an unconfigured profile
+is logged as `could not run` instead of breaking the run. Configure and mandate a
+profile in Organization → Guardrails (catalog entries need the vendor's key),
+then set `PURSE_GUARDRAIL_PROFILE`. From then on Otari, not Purse, decides
+whether a call is an injection, and Purse attaches the consequence. The rulebook
+regexes stay in front as a free first check.
 
-**Otari guardrails.** This deployment answers `502` for caller-supplied guardrail
-profiles, and the catalogue entries need third party vendor keys. The rulebook
-guard in Purse is application logic matched in code, and it is described that way
-rather than dressed up as the platform feature.
+**Routing.** An earlier build compared the body's `model` with the requested
+one, but a routing policy keeps its own name in the body, so that could never
+show a fallback. Purse now reads `Otari-Model` and `Otari-Fallback`. A policy
+still needs a provider key in Organization; see [routing/README.md](routing/README.md).
 
-Six Otari capabilities are exercised end to end, which is the category maximum.
+**Edge timeouts.** A `502` or `504` HTML page from the edge has no receipt, but
+Otari may already have billed the call behind it. Purse books the stage's
+reserve against the bond as an estimate, marks the row `estimate`, and checks
+the reserve again before it retries once. Counting the lost call as free would
+let the agent spend past its bond.
 
 ## Notes
 
@@ -215,7 +248,8 @@ src/agent.ts     the run: guard, policy, plan, research, verify, settle, ledger
 src/ledger.ts    bonds, reserves, debits, slashes
 src/otari.ts     the gateway client, tool types, inline MCP, cost parsing
 src/config.ts    models, per stage reserves, users and keys
-src/server.ts    Express, SSE stream, static page
+src/server.ts    Express, SSE stream, static page, access code
+test/            node:test suites, no network
 public/index.html one page, no bundler
 POLICY.md        the rulebook read over MCP at runtime
 ```
