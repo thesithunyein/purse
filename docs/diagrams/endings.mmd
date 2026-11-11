@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> Running
+    Running --> Done: review finds a usable answer
+    Running --> NoAnswer: review finds none
+    Running --> LimitReached: next step may not fit
+    Running --> Blocked: rulebook or Otari guardrail
+    Running --> AccountLimit: Otari budget refuses
+    Done --> [*]
+    NoAnswer --> [*]
+    LimitReached --> [*]
+    Blocked --> [*]
+    AccountLimit --> [*]

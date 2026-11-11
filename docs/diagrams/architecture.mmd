@@ -1,0 +1,45 @@
+flowchart TB
+    subgraph Browser
+        direction LR
+        UI[Page<br/>public/index.html]
+        KEY[(Your Otari key<br/>localStorage)]
+        HIST[(Run history<br/>localStorage)]
+    end
+
+    subgraph Server["Purse server · Express, stateless"]
+        direction LR
+        API["POST /api/run<br/>streams events"]
+        RUN[Run<br/>src/agent.ts]
+        LEDGER[Ledger<br/>src/ledger.ts]
+        API --> RUN
+        RUN <--> LEDGER
+    end
+
+    subgraph Otari["Otari gateway · otari.ai"]
+        direction LR
+        GW[chat/completions]
+        BUD[Budgets and<br/>spend ceilings]
+        GR[Guardrails]
+        RT[Routing]
+        WS[web search]
+        CE[code execution]
+        GW --- BUD
+        GW --- GR
+        GW --- RT
+        GW --- WS
+        GW --- CE
+    end
+
+    subgraph Upstream["Reached through Otari"]
+        direction LR
+        QW[Open-weight models<br/>Qwen 30B · 80B]
+        MCP[(POLICY.md over MCP<br/>GitMCP)]
+    end
+
+    UI -- "question + limit<br/>x-otari-key" --> API
+    KEY -.-> UI
+    API -- "step events, outcome" --> UI
+    UI -.-> HIST
+    RUN -- "one call per step" --> GW
+    GW --> QW
+    GW --> MCP

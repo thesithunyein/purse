@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    participant U as You
+    participant P as Purse
+    participant L as Ledger
+    participant O as Otari
+
+    U->>P: question + limit ($0.20)
+    P->>P: rulebook check (free)
+    alt breaks a rule
+        P-->>U: Blocked, nothing ran, $0 paid
+    end
+    loop rules · plan · search · check · review
+        P->>L: reserve the worst case for this step
+        alt not enough left
+            L-->>P: refused
+            P-->>U: Limit reached, paid only for steps that ran
+        else fits
+            P->>O: chat/completions (+ tool, + guardrail)
+            alt Otari refuses
+                O-->>P: 403 budget_exceeded / guardrail_violation
+                P-->>U: Account limit / Blocked
+            else served
+                O-->>P: answer + usage.cost_usd + Otari-Model
+                P->>L: debit the billed cost
+                P-->>U: step done, cost shown
+            end
+        end
+    end
+    P-->>U: Done, plain answer, total paid

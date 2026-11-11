@@ -13,6 +13,16 @@ and stops before it spends a cent past your limit.</p>
   <a href="SECURITY.md">Security</a>
 </p>
 
+<p align="center">
+  <a href="https://usepurse.vercel.app"><img alt="Live" src="https://img.shields.io/badge/live-usepurse.vercel.app-0b0b0b?style=flat-square" /></a>
+  <a href="https://github.com/thesithunyein/purse/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/thesithunyein/purse/actions/workflows/ci.yml/badge.svg?branch=otari" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0b0b0b?style=flat-square" /></a>
+  <img alt="Node 20+" src="https://img.shields.io/badge/node-%E2%89%A520-0b0b0b?style=flat-square&logo=nodedotjs&logoColor=white" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-0b0b0b?style=flat-square&logo=typescript&logoColor=white" />
+  <a href="https://otari.ai"><img alt="Built on Otari" src="https://img.shields.io/badge/built%20on-Otari-0b0b0b?style=flat-square" /></a>
+  <img alt="Open-weight models" src="https://img.shields.io/badge/models-open--weight%20Qwen-0b0b0b?style=flat-square" />
+</p>
+
 <p align="center"><img src="docs/screenshot.png" width="760" alt="Purse: a question box with a dollar limit, the Purse mark inside a budget ring" /></p>
 
 ---
@@ -41,108 +51,24 @@ and fees. It can't move money.
 
 ### Architecture
 
-```mermaid
-flowchart TB
-    subgraph Browser
-        direction LR
-        UI[Page<br/>public/index.html]
-        KEY[(Your Otari key<br/>localStorage)]
-        HIST[(Run history<br/>localStorage)]
-    end
+<p align="center"><img src="docs/diagrams/architecture.png" width="760" alt="Architecture: browser, stateless Purse server, Otari gateway with budgets, guardrails, routing, web search and code execution, then open-weight models and MCP" /></p>
 
-    subgraph Server["Purse server · Express, stateless"]
-        direction LR
-        API["POST /api/run<br/>streams events"]
-        RUN[Run<br/>src/agent.ts]
-        LEDGER[Ledger<br/>src/ledger.ts]
-        API --> RUN
-        RUN <--> LEDGER
-    end
-
-    subgraph Otari["Otari gateway · otari.ai"]
-        direction LR
-        GW[chat/completions]
-        BUD[Budgets and<br/>spend ceilings]
-        GR[Guardrails]
-        RT[Routing]
-        WS[web search]
-        CE[code execution]
-        GW --- BUD
-        GW --- GR
-        GW --- RT
-        GW --- WS
-        GW --- CE
-    end
-
-    subgraph Upstream["Reached through Otari"]
-        direction LR
-        QW[Open-weight models<br/>Qwen 30B · 80B]
-        MCP[(POLICY.md over MCP<br/>GitMCP)]
-    end
-
-    UI -- "question + limit<br/>x-otari-key" --> API
-    KEY -.-> UI
-    API -- "step events, outcome" --> UI
-    UI -.-> HIST
-    RUN -- "one call per step" --> GW
-    GW --> QW
-    GW --> MCP
-```
+<sub>Source: [docs/diagrams/architecture.mmd](docs/diagrams/architecture.mmd)</sub>
 
 The server keeps nothing between requests. One request runs one question and
 streams it back, so it runs the same on one machine or on serverless hosts.
 
 ### One question, step by step
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as You
-    participant P as Purse
-    participant L as Ledger
-    participant O as Otari
+<p align="center"><img src="docs/diagrams/request.png" width="760" alt="Sequence of one question: rulebook check, then for each step a reserve, an Otari call, and a debit of the billed cost" /></p>
 
-    U->>P: question + limit ($0.20)
-    P->>P: rulebook check (free)
-    alt breaks a rule
-        P-->>U: Blocked, nothing ran, $0 paid
-    end
-    loop rules · plan · search · check · review
-        P->>L: reserve the worst case for this step
-        alt not enough left
-            L-->>P: refused
-            P-->>U: Limit reached, paid only for steps that ran
-        else fits
-            P->>O: chat/completions (+ tool, + guardrail)
-            alt Otari refuses
-                O-->>P: 403 budget_exceeded / guardrail_violation
-                P-->>U: Account limit / Blocked
-            else served
-                O-->>P: answer + usage.cost_usd + Otari-Model
-                P->>L: debit the billed cost
-                P-->>U: step done, cost shown
-            end
-        end
-    end
-    P-->>U: Done, plain answer, total paid
-```
+<sub>Source: [docs/diagrams/request.mmd](docs/diagrams/request.mmd)</sub>
 
 ### How a run ends
 
-```mermaid
-stateDiagram-v2
-    [*] --> Running
-    Running --> Done: review finds a usable answer
-    Running --> NoAnswer: review finds none
-    Running --> LimitReached: next step may not fit
-    Running --> Blocked: rulebook or Otari guardrail
-    Running --> AccountLimit: Otari budget refuses
-    Done --> [*]
-    NoAnswer --> [*]
-    LimitReached --> [*]
-    Blocked --> [*]
-    AccountLimit --> [*]
-```
+<p align="center"><img src="docs/diagrams/endings.png" width="720" alt="How a run ends: Done, No answer, Limit reached, Blocked, or Account limit" /></p>
+
+<sub>Source: [docs/diagrams/endings.mmd](docs/diagrams/endings.mmd)</sub>
 
 Every ending reports what Otari actually billed (`billedUsd`). A blocked request
 before any model call costs nothing.
