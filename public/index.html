@@ -17,21 +17,21 @@
     <meta property="og:image" content="/logo-512.png" />
     <style>
       :root {
-        --bg: #f7f7f4;
+        --bg: #fafaf8;
         --card: #ffffff;
-        --line: #e6e6e0;
-        --text: #141714;
-        --muted: #686d68;
-        --soft: #f1f1ec;
-        --brand: #0f9d6b;
-        --brand-ink: #0c120f;
-        --ok: #0f9d6b;
-        --ok-bg: #e6f5ee;
-        --warn: #a35f00;
-        --warn-bg: #fdf2df;
-        --bad: #c33a2f;
-        --bad-bg: #fcebe8;
-        --radius: 14px;
+        --line: #e8e6e1;
+        --text: #0b0b0b;
+        --muted: #6e6c67;
+        --soft: #f3f2ee;
+        --ink: #0b0b0b;
+        --ok: #2f6f4f;
+        --ok-bg: #edf3ef;
+        --warn: #8a5a12;
+        --warn-bg: #f7efe2;
+        --bad: #a23a30;
+        --bad-bg: #f7e9e6;
+        --radius: 16px;
+        --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
         --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
       * { box-sizing: border-box; }
@@ -56,25 +56,44 @@
 
       .hero { display: grid; grid-template-columns: 1.15fr 0.85fr; align-items: center; gap: 24px; padding: 34px 0 30px; }
       .hero h1 { font-size: 46px; line-height: 1.05; letter-spacing: -0.035em; margin: 0 0 14px; font-weight: 700; }
-      .hero h1 em { font-style: normal; color: var(--brand); }
+      .hero h1 em { font-style: normal; position: relative; white-space: nowrap; }
+      .hero h1 em svg { position: absolute; left: -2%; bottom: -0.2em; width: 104%; height: 0.42em; overflow: visible; }
+      .hero h1 em path { stroke-dasharray: 420; stroke-dashoffset: 420; animation: draw 1.1s 0.35s var(--ease) forwards; }
+      @keyframes draw { to { stroke-dashoffset: 0; } }
       .hero p { font-size: 17px; color: var(--muted); margin: 0; max-width: 460px; }
-      .art { width: 100%; max-width: 340px; justify-self: end; }
-      .art .float { animation: float 5s ease-in-out infinite; transform-origin: center; }
-      @keyframes float { 50% { transform: translateY(-6px); } }
-      @media (prefers-reduced-motion: reduce) { .art .float { animation: none; } }
+      .art { width: 100%; max-width: 330px; justify-self: end; position: relative; }
+      .art svg { width: 100%; display: block; }
+      .art .float { animation: float 6s ease-in-out infinite; transform-origin: 160px 160px; }
+      @keyframes float { 50% { transform: translateY(-5px); } }
+      /* 2πr = 804: fill to 70%, the limit tick, then hold. */
+      .art .spend { stroke-dasharray: 804; stroke-dashoffset: 804; animation: spend 2.6s 0.5s var(--ease) forwards; }
+      @keyframes spend { to { stroke-dashoffset: 241; } }
+      .art .tag { position: absolute; left: -28px; top: 79%; font-size: 12px; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; opacity: 0; animation: fade 0.5s 2.9s forwards; }
+      @keyframes fade { to { opacity: 1; } }
+      .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
+      .reveal.in { opacity: 1; transform: none; }
+      @media (prefers-reduced-motion: reduce) {
+        .art .float, .art .spend, .art .tag, .hero h1 em path, .result { animation: none !important; }
+        .art .spend { stroke-dashoffset: 241; }
+        .art .tag { opacity: 1; }
+        .hero h1 em path { stroke-dashoffset: 0; }
+        .reveal { opacity: 1; transform: none; transition: none; }
+      }
 
-      .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: 0 1px 0 rgba(0,0,0,0.02), 0 12px 32px -18px rgba(20, 30, 25, 0.18); }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; box-shadow: 0 1px 0 rgba(0,0,0,0.02), 0 18px 40px -24px rgba(0, 0, 0, 0.22); }
+      .result { animation: rise 0.45s var(--ease); }
+      @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
       .card + .card { margin-top: 16px; }
       .notice { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-bottom: 14px; display: none; }
 
       .keyrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
       .keyrow .state { display: flex; align-items: center; gap: 8px; }
       .pill { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
-      .pill.on { background: var(--brand); box-shadow: 0 0 0 3px var(--ok-bg); }
+      .pill.on { background: var(--ink); box-shadow: 0 0 0 3px var(--soft); }
       .link { background: none; border: 0; padding: 0; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
       .chips { display: flex; gap: 6px; align-items: center; }
       .chip { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; }
-      .chip.active { border-color: var(--brand-ink); }
+      .chip.active { border-color: var(--ink); }
 
       .connect { display: none; background: var(--soft); border-radius: 10px; padding: 14px; margin: 12px 0 6px; }
       .connect.open { display: block; }
@@ -105,8 +124,9 @@
       .budget .money { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); padding: 0 8px; }
       .budget .money span { color: var(--muted); }
       .budget input { width: 64px; border: 0; background: transparent; color: var(--text); padding: 7px 4px; font: inherit; font-size: 14px; outline: none; }
-      button.primary { background: var(--brand-ink); color: #fff; border: 0; border-radius: 9px; padding: 10px 20px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
-      button.primary:hover { background: #1f2a24; }
+      button.primary { background: var(--ink); transition: transform 0.15s var(--ease), background 0.15s; color: #fff; border: 0; border-radius: 9px; padding: 10px 20px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+      button.primary:hover { background: #262626; }
+      button.primary:active { transform: scale(0.97); }
       button.primary:disabled { opacity: 0.4; cursor: default; }
       .examples { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
       .examples button { border: 0; background: var(--soft); color: var(--muted); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; }
@@ -116,7 +136,7 @@
       .balance strong { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; }
       .balance span { color: var(--muted); font-size: 13px; }
       .meter { height: 6px; background: #e9e9e3; border-radius: 999px; overflow: hidden; margin: 0 2px 14px; }
-      .meter div { height: 100%; background: var(--ok); width: 100%; transition: width 0.4s ease; }
+      .meter div { height: 100%; background: var(--ink); width: 100%; transition: width 0.6s var(--ease), background 0.3s; }
 
       .result { display: none; }
       .verdict { display: flex; gap: 12px; align-items: flex-start; }
@@ -133,7 +153,7 @@
       ol.steps li:first-child { border-top: 0; }
       .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
       .dot.running { background: var(--muted); animation: pulse 1s infinite; }
-      .dot.done { background: var(--ok); }
+      .dot.done { background: var(--ink); }
       .dot.blocked { background: var(--bad); }
       .dot.skipped { background: #d8b16a; }
       @keyframes pulse { 50% { opacity: 0.3; } }
@@ -160,6 +180,14 @@
       .tile h3 { margin: 0 0 4px; font-size: 15.5px; }
       .tile p { margin: 0; color: var(--muted); font-size: 14px; }
 
+      .faq { max-width: 760px; }
+      .faq details { border-top: 1px solid var(--line); padding: 4px 0; }
+      .faq details:last-of-type { border-bottom: 1px solid var(--line); }
+      .faq summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 14px 2px; font-size: 15.5px; font-weight: 500; color: var(--text); }
+      .faq summary::-webkit-details-marker { display: none; }
+      .faq summary::after { content: "+"; font-size: 20px; color: var(--muted); transition: transform 0.25s var(--ease); }
+      .faq details[open] summary::after { transform: rotate(45deg); }
+      .faq details div { padding: 0 2px 16px; color: var(--muted); max-width: 640px; }
       footer { margin: 64px 0 36px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
       footer a { color: var(--muted); }
 
@@ -182,58 +210,43 @@
         <div class="navlinks">
           <a href="#how" class="hide-sm">How it works</a>
           <a href="#safety" class="hide-sm">Safety</a>
+          <a href="#faq" class="hide-sm">FAQ</a>
           <a href="https://github.com/thesithunyein/purse" target="_blank" rel="noopener">GitHub</a>
         </div>
       </nav>
 
       <div class="hero">
         <div>
-          <h1>Research with a <em>hard budget.</em></h1>
+          <h1>Research with a <em>hard budget.<svg viewBox="0 0 300 30" preserveAspectRatio="none" aria-hidden="true"><path d="M4 22C60 8 150 4 296 14" fill="none" stroke="#0b0b0b" stroke-width="7" stroke-linecap="round" /></svg></em></h1>
           <p>Ask a question and set a dollar limit. Purse searches the web, checks the math, and stops before it spends a cent more.</p>
         </div>
 
-        <!-- Coin stack under a shield: the budget, and the line it won't cross. -->
-        <svg class="art" viewBox="0 0 340 300" role="img" aria-label="A stack of coins guarded by a shield">
-          <defs>
-            <linearGradient id="side" x1="0" x2="1">
-              <stop offset="0" stop-color="#c98a14" />
-              <stop offset="0.5" stop-color="#f2c14e" />
-              <stop offset="1" stop-color="#b87a0c" />
-            </linearGradient>
-            <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#ffe7a3" />
-              <stop offset="1" stop-color="#f4c552" />
-            </linearGradient>
-            <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#34d399" />
-              <stop offset="1" stop-color="#0f9d6b" />
-            </linearGradient>
-            <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
-              <stop offset="0" stop-color="#0c120f" stop-opacity="0.18" />
-              <stop offset="1" stop-color="#0c120f" stop-opacity="0" />
-            </radialGradient>
-          </defs>
-          <ellipse cx="150" cy="262" rx="120" ry="22" fill="url(#shadow)" />
-          <g>
-            <path d="M70 232v-18h160v18a80 26 0 0 1-160 0z" fill="url(#side)" />
-            <ellipse cx="150" cy="214" rx="80" ry="26" fill="url(#top)" />
-            <path d="M70 206v-18h160v18a80 26 0 0 1-160 0z" fill="url(#side)" />
-            <ellipse cx="150" cy="188" rx="80" ry="26" fill="url(#top)" />
-            <path d="M70 180v-18h160v18a80 26 0 0 1-160 0z" fill="url(#side)" />
-            <ellipse cx="150" cy="162" rx="80" ry="26" fill="url(#top)" />
-            <path d="M70 154v-18h160v18a80 26 0 0 1-160 0z" fill="url(#side)" />
-            <ellipse cx="150" cy="136" rx="80" ry="26" fill="url(#top)" />
-            <ellipse cx="150" cy="136" rx="58" ry="18" fill="none" stroke="#d9a332" stroke-width="2" />
-            <text x="150" y="144" text-anchor="middle" font-family="Google Sans, sans-serif" font-size="24" font-weight="700" fill="#b07a12">$</text>
-          </g>
-          <g class="float">
-            <path d="M262 46l42 16v34c0 28-18 48-42 58-24-10-42-30-42-58V62z" fill="url(#shield)" />
-            <path d="M262 46l42 16v34c0 28-18 48-42 58V46z" fill="#0c120f" opacity="0.12" />
-            <path d="M245 99l12 12 22-24" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
-          </g>
-          <path d="M40 104h200" stroke="#0c120f" stroke-width="2" stroke-dasharray="6 7" opacity="0.35" />
-          <text x="40" y="94" font-family="Google Sans, sans-serif" font-size="12" fill="#686d68">your limit</text>
-        </svg>
+        <!-- The mark inside a budget ring: the ring fills as it spends and halts
+             at the limit tick, which is the whole product in one picture. -->
+        <div class="art" aria-hidden="true">
+          <svg viewBox="0 0 320 320">
+            <defs>
+              <radialGradient id="glow" cx="0.5" cy="0.42" r="0.6">
+                <stop offset="0" stop-color="#ffffff" />
+                <stop offset="1" stop-color="#ecebe6" />
+              </radialGradient>
+              <filter id="lift" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#000" flood-opacity="0.22" />
+              </filter>
+            </defs>
+            <circle cx="160" cy="160" r="150" fill="url(#glow)" />
+            <circle cx="160" cy="160" r="128" fill="none" stroke="#e3e1db" stroke-width="10" />
+            <circle class="spend" cx="160" cy="160" r="128" fill="none" stroke="#0b0b0b" stroke-width="10" stroke-linecap="round" transform="rotate(-90 160 160)" />
+            <g transform="rotate(252 160 160)">
+              <line x1="160" y1="16" x2="160" y2="46" stroke="#0b0b0b" stroke-width="3" stroke-linecap="round" />
+            </g>
+            <g class="float" filter="url(#lift)">
+              <circle cx="160" cy="160" r="92" fill="#0b0b0b" />
+              <image href="/logo-512.png" x="76" y="76" width="168" height="168" />
+            </g>
+          </svg>
+          <span class="tag">stops at your limit</span>
+        </div>
       </div>
 
       <div class="narrow">
@@ -314,7 +327,7 @@
       <div class="wrap">
         <h2>New to crypto?</h2>
         <p>Three words you'll see in answers.</p>
-        <div class="words">
+        <div class="words reveal">
           <div><b>Gas fee</b><span>The small fee a network charges to move money. It changes with how busy the network is.</span></div>
           <div><b>USDC</b><span>A digital dollar. One USDC is meant to stay worth one US dollar.</span></div>
           <div><b>Ethereum and Base</b><span>Networks that move crypto. Base is built on Ethereum and usually costs less to use.</span></div>
@@ -326,32 +339,32 @@
       <div class="wrap">
         <h2>How it works</h2>
         <p>Three steps. You see every cent.</p>
-        <div class="grid">
+        <div class="grid reveal">
           <div class="tile">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <rect width="40" height="40" rx="11" fill="#e6f5ee" />
-              <path d="M11 25a9 9 0 0 1 18 0" fill="none" stroke="#0f9d6b" stroke-width="2.4" stroke-linecap="round" />
-              <path d="M20 25l5-6" stroke="#0c120f" stroke-width="2.4" stroke-linecap="round" />
-              <circle cx="20" cy="25" r="2.2" fill="#0c120f" />
+              <rect width="40" height="40" rx="11" fill="#f0efea" />
+              <path d="M11 25a9 9 0 0 1 18 0" fill="none" stroke="#0b0b0b" stroke-width="2.4" stroke-linecap="round" />
+              <path d="M20 25l5-6" stroke="#0b0b0b" stroke-width="2.4" stroke-linecap="round" />
+              <circle cx="20" cy="25" r="2.2" fill="#0b0b0b" />
             </svg>
             <h3>Set a limit</h3>
             <p>Pick the most you want to spend. Most questions cost a few cents.</p>
           </div>
           <div class="tile">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <rect width="40" height="40" rx="11" fill="#e6f5ee" />
-              <circle cx="18" cy="18" r="6.5" fill="none" stroke="#0f9d6b" stroke-width="2.4" />
-              <path d="M23 23l6 6" stroke="#0c120f" stroke-width="2.4" stroke-linecap="round" />
-              <path d="M15.5 18l1.8 1.8 3.4-3.6" fill="none" stroke="#0c120f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <rect width="40" height="40" rx="11" fill="#f0efea" />
+              <circle cx="18" cy="18" r="6.5" fill="none" stroke="#0b0b0b" stroke-width="2.4" />
+              <path d="M23 23l6 6" stroke="#0b0b0b" stroke-width="2.4" stroke-linecap="round" />
+              <path d="M15.5 18l1.8 1.8 3.4-3.6" fill="none" stroke="#0b0b0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <h3>It does the work</h3>
             <p>Plans, searches the web, and runs the numbers in code instead of guessing.</p>
           </div>
           <div class="tile">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <rect width="40" height="40" rx="11" fill="#e6f5ee" />
-              <path d="M13 10h14v20l-3.5-2-3.5 2-3.5-2-3.5 2z" fill="none" stroke="#0f9d6b" stroke-width="2.4" stroke-linejoin="round" />
-              <path d="M17 16h6M17 21h4" stroke="#0c120f" stroke-width="2.2" stroke-linecap="round" />
+              <rect width="40" height="40" rx="11" fill="#f0efea" />
+              <path d="M13 10h14v20l-3.5-2-3.5 2-3.5-2-3.5 2z" fill="none" stroke="#0b0b0b" stroke-width="2.4" stroke-linejoin="round" />
+              <path d="M17 16h6M17 21h4" stroke="#0b0b0b" stroke-width="2.2" stroke-linecap="round" />
             </svg>
             <h3>Pay for what ran</h3>
             <p>Each step shows its cost. What you don't use stays yours.</p>
@@ -364,35 +377,51 @@
       <div class="wrap">
         <h2>It knows when to stop</h2>
         <p>Every step is checked before it costs you anything.</p>
-        <div class="grid">
+        <div class="grid reveal">
           <div class="tile">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <rect width="40" height="40" rx="11" fill="#fdf2df" />
-              <path d="M20 11v11" stroke="#a35f00" stroke-width="2.6" stroke-linecap="round" />
-              <circle cx="20" cy="28" r="1.8" fill="#a35f00" />
+              <rect width="40" height="40" rx="11" fill="#f0efea" />
+              <path d="M20 11v11" stroke="#0b0b0b" stroke-width="2.6" stroke-linecap="round" />
+              <circle cx="20" cy="28" r="1.8" fill="#0b0b0b" />
             </svg>
             <h3>Too little left</h3>
             <p>If the next step could go over your limit, it stops first.</p>
           </div>
           <div class="tile">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <rect width="40" height="40" rx="11" fill="#fcebe8" />
-              <circle cx="20" cy="20" r="8.5" fill="none" stroke="#c33a2f" stroke-width="2.4" />
-              <path d="M14 26l12-12" stroke="#c33a2f" stroke-width="2.4" stroke-linecap="round" />
+              <rect width="40" height="40" rx="11" fill="#f0efea" />
+              <circle cx="20" cy="20" r="8.5" fill="none" stroke="#0b0b0b" stroke-width="2.4" />
+              <path d="M14 26l12-12" stroke="#0b0b0b" stroke-width="2.4" stroke-linecap="round" />
             </svg>
             <h3>Unsafe requests</h3>
             <p>Moving all funds, seed phrases, or hidden instructions get blocked.</p>
           </div>
           <div class="tile">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <rect width="40" height="40" rx="11" fill="#e6f5ee" />
-              <rect x="12" y="18" width="16" height="12" rx="3" fill="none" stroke="#0f9d6b" stroke-width="2.4" />
-              <path d="M15 18v-3a5 5 0 0 1 10 0v3" fill="none" stroke="#0c120f" stroke-width="2.4" stroke-linecap="round" />
+              <rect width="40" height="40" rx="11" fill="#f0efea" />
+              <rect x="12" y="18" width="16" height="12" rx="3" fill="none" stroke="#0b0b0b" stroke-width="2.4" />
+              <path d="M15 18v-3a5 5 0 0 1 10 0v3" fill="none" stroke="#0b0b0b" stroke-width="2.4" stroke-linecap="round" />
             </svg>
             <h3>Your key stays yours</h3>
             <p>Kept in your browser. Runs on open models through Otari.</p>
           </div>
         </div>
+
+      </div>
+    </section>
+
+    <section class="info" id="faq">
+      <div class="wrap faq">
+        <h2>Questions</h2>
+        <p>Short answers.</p>
+        <details><summary>Do I need crypto or a wallet?</summary><div>No. Purse only reads public prices and fees. It never connects to a wallet and can't move money.</div></details>
+        <details><summary>What do I pay, and to whom?</summary><div>You pay Otari for the AI it runs, through your own key. A typical question costs about 2¢. Purse itself is free.</div></details>
+        <details><summary>Can it spend more than my limit?</summary><div>No. Before each step it checks that the step fits in what's left. If it might not, it stops and tells you.</div></details>
+        <details><summary>Is my key safe?</summary><div>It's kept in your browser. It's sent only with your own questions, used for that one request, and never saved or logged on our server. You can remove it any time.</div></details>
+        <details><summary>Why was my question blocked?</summary><div>Requests to move all funds, share a seed phrase, or hidden instructions inside the text are refused before anything runs. You aren't charged for a blocked request.</div></details>
+        <details><summary>Where do the answers come from?</summary><div>It searches the web, then checks the numbers with code. Open "Show the working" under an answer to see the sources.</div></details>
+        <details><summary>Is this financial advice?</summary><div>No. It gives facts and numbers, not advice. Prices and fees change by the minute, so check before you act.</div></details>
+        <details><summary>Which AI models does it use?</summary><div>Open-weight models from the Qwen family, run through Otari by Mozilla.ai. The code is open on GitHub.</div></details>
 
         <footer>
           <span>Purse · open source</span>
@@ -511,7 +540,7 @@
         $("of").textContent = "left of " + usd(total);
         const pct = total > 0 ? (left / total) * 100 : 0;
         $("meter").style.width = Math.max(0, Math.min(100, pct)) + "%";
-        $("meter").style.background = pct < 15 ? "var(--bad)" : pct < 40 ? "var(--warn)" : "var(--ok)";
+        $("meter").style.background = pct < 15 ? "var(--bad)" : pct < 40 ? "var(--warn)" : "var(--ink)";
       }
 
       function resetResult() {
@@ -716,6 +745,16 @@
       });
       for (const button of $("examples").querySelectorAll("[data-task]")) {
         button.onclick = () => { $("task").value = button.getAttribute("data-task"); $("task").focus(); };
+      }
+      // Fade sections in as they scroll into view; everything shows at once
+      // where IntersectionObserver is missing.
+      if ("IntersectionObserver" in window) {
+        const seen = new IntersectionObserver((entries) => {
+          for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add("in"); seen.unobserve(entry.target); }
+        }, { threshold: 0.15 });
+        document.querySelectorAll(".reveal").forEach((el) => seen.observe(el));
+      } else {
+        document.querySelectorAll(".reveal").forEach((el) => el.classList.add("in"));
       }
       loadState();
     </script>
