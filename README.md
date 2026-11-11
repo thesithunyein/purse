@@ -1,6 +1,16 @@
-# Purse
+<p align="center"><img src="public/logo-readme.png" width="96" alt="Purse" /></p>
 
-An agent that can only act while it can pay for its own thinking.
+<h1 align="center">Purse</h1>
+
+<p align="center"><a href="https://usepurse.vercel.app">usepurse.vercel.app</a></p>
+
+Research with a hard budget. Ask a question, set a dollar limit, and Purse
+searches the web, checks the math in code, and stops before it spends past it.
+
+Connect your own Otari key on the site and you pay Otari directly. The key stays
+in your browser and is sent only with your own runs.
+
+Under the hood it is an agent that can only act while it can pay for its own thinking.
 
 Purse posts a bond before it starts. Otari meters every model call it makes against
 that bond. If the work holds up the unspent bond comes back. If the agent breaks one

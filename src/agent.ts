@@ -70,7 +70,14 @@ export class Run {
   private listeners: Array<(event: LogEvent) => void> = [];
   private warnedUnavailable = new Set<string>();
 
-  constructor(user: string, task: string, private ledger: Ledger) {
+  // endUsers: bill this run to an Otari end user on a service key. Off for a
+  // key the visitor brought, which bills its own workspace user as usual.
+  constructor(
+    user: string,
+    task: string,
+    private ledger: Ledger,
+    private options: { endUsers: boolean } = { endUsers: config.serviceKeyMode },
+  ) {
     this.user = user;
     this.task = task;
     this.outcome = {
@@ -149,8 +156,8 @@ export class Run {
           mcpServers,
           maxTokens: extra?.maxTokens,
           guardrails: this.guardrails(),
-          endUser: config.serviceKeyMode ? `${config.endUserPrefix}${this.user}` : undefined,
-          endUserBudget: config.serviceKeyMode && account.endUserBudget ? account.endUserBudget : undefined,
+          endUser: this.options.endUsers ? `${config.endUserPrefix}${this.user}` : undefined,
+          endUserBudget: this.options.endUsers && account.endUserBudget ? account.endUserBudget : undefined,
         },
         config.baseUrl,
         config.mock,
