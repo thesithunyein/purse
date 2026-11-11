@@ -95,6 +95,8 @@ export type RunOutcome = {
   // Who ended the run: Purse's own ledger, or a gate inside Otari.
   endedBy?: "purse_guard" | "purse_reserve" | "otari_budget" | "otari_guardrail" | "settlement" | "error";
   reason?: string;
+  // What the agent found, shown to the person who asked.
+  answer?: string;
   bondUsd: number;
   spentUsd: number;
   remainingUsd: number;

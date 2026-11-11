@@ -389,6 +389,7 @@ export class Run {
       { maxTokens: 300 },
     );
 
+    this.outcome.answer = [research, verified].map((part) => part.trim()).filter(Boolean).join("\n\n");
     const parsed = parseDecision(decision);
     const reason = parsed.reason.replace(/[.\s]+$/, "");
 

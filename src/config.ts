@@ -44,14 +44,14 @@ export const config = {
   users: [
     {
       id: "alice",
-      label: "Alice",
+      label: env("PURSE_LABEL_ALICE", "Personal"),
       apiKey: serviceKey || env("PURSE_KEY_ALICE", ""),
       bondUsd: Number(env("PURSE_BOND_ALICE", "0.20")),
       endUserBudget: env("PURSE_END_USER_BUDGET_ALICE", ""),
     },
     {
       id: "bob",
-      label: "Bob",
+      label: env("PURSE_LABEL_BOB", "Team"),
       apiKey: serviceKey || env("PURSE_KEY_BOB", ""),
       bondUsd: Number(env("PURSE_BOND_BOB", "0.02")),
       endUserBudget: env("PURSE_END_USER_BUDGET_BOB", ""),
