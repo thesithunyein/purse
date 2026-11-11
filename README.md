@@ -23,7 +23,7 @@ and stops before it spends a cent past your limit.</p>
   <img alt="Open-weight models" src="https://img.shields.io/badge/models-open--weight%20Qwen-0b0b0b?style=flat-square" />
 </p>
 
-<p align="center"><img src="docs/screenshot.png" width="760" alt="Purse: a question box with a dollar limit, the Purse mark inside a budget ring" /></p>
+<p align="center"><img src="docs/purse-home.png" width="760" alt="Purse: a question box with a dollar limit, the Purse mark inside a budget ring" /></p>
 
 ---
 
