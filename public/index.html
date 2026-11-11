@@ -456,7 +456,12 @@
       const KEY_KEY = "purse-otari-key";
       const state = { shared: "", key: "", code: "", accounts: [], max: 1, running: false, mock: false };
       const $ = (id) => document.getElementById(id);
-      const usd = (n) => "$" + Number(n || 0).toFixed(Number(n) > 0 && Number(n) < 0.01 ? 4 : 2);
+      // Under 10¢, two decimals would round $0.027 up to $0.03 and hide the gap
+      // between what's left and what the next step needs.
+      const usd = (n) => {
+        const v = Number(n || 0);
+        return "$" + v.toFixed(v > 0 && v < 0.01 ? 4 : v > 0 && v < 0.1 ? 3 : 2);
+      };
       const exact = (n) => "$" + Number(n || 0).toFixed(5);
       // What Otari actually charged. Older saved runs only have spentUsd.
       const billed = (o) => (typeof o.billedUsd === "number" ? o.billedUsd : o.spentUsd);
