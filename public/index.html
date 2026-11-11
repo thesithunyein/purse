@@ -103,7 +103,8 @@
       .connect p { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
       .connect ol { margin: 0 0 12px; padding-left: 20px; font-size: 13.5px; color: var(--text); }
       .connect ol li { margin: 2px 0; }
-      .connect .msg { margin-top: 8px; font-size: 13px; min-height: 18px; }
+      .connect .msg { margin-top: 8px; font-size: 13px; }
+      .connect .msg:empty { display: none; }
       .connect .msg.bad { color: var(--bad); }
       .connect .msg.ok { color: var(--ok); }
       .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
@@ -474,6 +475,13 @@
       state.key = store.get(KEY_KEY, "");
       try { state.code = sessionStorage.getItem("purse-code") || ""; } catch {}
 
+      // One Connect action on screen at a time: while the panel is open the top
+      // link only closes it.
+      function syncKeyButton() {
+        const open = $("connect").classList.contains("open");
+        $("keybtn").textContent = open ? "Close" : state.key ? "Change" : "Connect";
+      }
+
       function renderKey() {
         const using = state.key ? "own" : state.shared ? "shared" : "";
         $("pill").className = "pill" + (using ? " on" : "");
@@ -481,7 +489,7 @@
           using === "own" ? "Your Otari key ····" + state.key.slice(-4)
           : using === "shared" ? (state.mock ? "Test account" : "Using a shared account")
           : "Otari key not connected";
-        $("keybtn").textContent = state.key ? "Change" : "Connect";
+        syncKeyButton();
         $("forget").style.display = state.key ? "inline" : "none";
         const shared = $("shared");
         shared.innerHTML = "";
@@ -506,7 +514,7 @@
         if (!state.shared && state.accounts[0]) state.shared = state.accounts[0].id;
         $("bond").max = String(data.maxBudgetUsd);
         $("testmode").style.display = data.mock ? "block" : "none";
-        if (!state.key && !state.accounts.length) $("connect").classList.add("open");
+        if (!state.key && !state.accounts.length) $("connect").classList.add("open"); syncKeyButton();
         renderKey();
         renderHistory();
       }
@@ -629,7 +637,7 @@
         if (state.running) return;
         if (!task) { $("task").focus(); return; }
         if (!state.key && !state.shared) {
-          $("connect").classList.add("open");
+          $("connect").classList.add("open"); syncKeyButton();
           $("keyinput").focus();
           return;
         }
@@ -702,6 +710,7 @@
 
       $("keybtn").onclick = () => {
         $("connect").classList.toggle("open");
+        syncKeyButton();
         if ($("connect").classList.contains("open")) $("keyinput").focus();
       };
       // Check the key with Otari before saving it, so a bad paste fails here
@@ -725,7 +734,7 @@
           $("keyinput").value = "";
           msg.className = "msg ok"; msg.textContent = "Connected. Ask your first question.";
           renderKey();
-          setTimeout(() => { $("connect").classList.remove("open"); msg.textContent = ""; $("task").focus(); }, 900);
+          setTimeout(() => { $("connect").classList.remove("open"); syncKeyButton(); msg.textContent = ""; $("task").focus(); }, 900);
         } catch {
           msg.className = "msg bad"; msg.textContent = "Couldn't check the key. Check your connection.";
         } finally {
