@@ -22,6 +22,7 @@ function env(name: string, fallback: string): string {
 }
 
 const mcpUrl = env("PURSE_MCP_URL", "");
+const serviceKey = env("PURSE_SERVICE_KEY", "");
 
 export const config = {
   port: Number(env("PORT", "3000")),
@@ -29,25 +30,47 @@ export const config = {
 
   // Small open-weight model for the loop, larger one for the call that moves money.
   // Pull real ids from GET /api/v1/models. These two must be different ids.
+  // Either can be a routing policy name instead (see routing/README.md); the
+  // model that actually answered is then read from the Otari-Model header.
   loopModel: env("PURSE_LOOP_MODEL", "alibaba/qwen3-30b-a3b-instruct-2507"),
   settleModel: env("PURSE_SETTLE_MODEL", "alibaba/qwen3-next-80b-a3b-instruct"),
 
   // One Otari workspace key per user. Per-user budgets are the point: each key
   // carries its own spend ceiling in the Otari dashboard.
+  //
+  // Service-key mode replaces the per-user keys: one Otari service key, and
+  // every bond holder is an Otari end user with a budget of its own. Otari then
+  // enforces each person's cap itself and lists them under the key's End users.
   users: [
     {
       id: "alice",
       label: "Alice",
-      apiKey: env("PURSE_KEY_ALICE", ""),
+      apiKey: serviceKey || env("PURSE_KEY_ALICE", ""),
       bondUsd: Number(env("PURSE_BOND_ALICE", "0.20")),
+      endUserBudget: env("PURSE_END_USER_BUDGET_ALICE", ""),
     },
     {
       id: "bob",
       label: "Bob",
-      apiKey: env("PURSE_KEY_BOB", ""),
+      apiKey: serviceKey || env("PURSE_KEY_BOB", ""),
       bondUsd: Number(env("PURSE_BOND_BOB", "0.02")),
+      endUserBudget: env("PURSE_END_USER_BUDGET_BOB", ""),
     },
   ],
+  serviceKeyMode: serviceKey.length > 0,
+  // Prefix for the end-user id sent in `user`. Ids must be stable per person,
+  // because every new id creates an end user on the key.
+  endUserPrefix: env("PURSE_END_USER_PREFIX", "purse:"),
+
+  // An Otari guardrail profile run on every stage's input, in block mode. A
+  // flagged request is refused by Otari before any provider is called, and
+  // Purse slashes the bond for it. Empty turns the check off.
+  // on_unavailable decides what a profile Otari cannot evaluate does: monitor
+  // serves the call and logs "unavailable", block refuses it with a 502.
+  guardrailProfile: env("PURSE_GUARDRAIL_PROFILE", ""),
+  guardrailOnUnavailable: (env("PURSE_GUARDRAIL_ON_UNAVAILABLE", "monitor") === "block" ? "block" : "monitor") as
+    | "block"
+    | "monitor",
 
   // Inline MCP server. The gateway connects to this URL on the request itself,
   // so nothing has to be registered in the dashboard first.
@@ -68,4 +91,8 @@ export const config = {
   reserveToolUsd: Number(env("PURSE_RESERVE_TOOL_USD", "0.03")),
 
   mock: env("PURSE_MOCK", "0") === "1",
+
+  // When set, every /api route needs this code (header or ?code=). Use it on a
+  // public deploy so strangers cannot spend the bonds.
+  accessCode: env("PURSE_ACCESS_CODE", ""),
 };

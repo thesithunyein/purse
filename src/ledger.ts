@@ -9,6 +9,7 @@ export type Account = {
   id: string;
   label: string;
   apiKey: string;
+  endUserBudget: string;
   bondUsd: number;
   spentUsd: number;
   slashes: number;
@@ -17,12 +18,15 @@ export type Account = {
 export class Ledger {
   private accounts = new Map<string, Account>();
 
-  constructor(seed: Array<{ id: string; label: string; apiKey: string; bondUsd: number }>) {
+  constructor(
+    seed: Array<{ id: string; label: string; apiKey: string; bondUsd: number; endUserBudget?: string }>,
+  ) {
     for (const entry of seed) {
       this.accounts.set(entry.id, {
         id: entry.id,
         label: entry.label,
         apiKey: entry.apiKey,
+        endUserBudget: entry.endUserBudget ?? "",
         bondUsd: entry.bondUsd,
         spentUsd: 0,
         slashes: 0,
@@ -58,16 +62,18 @@ export class Ledger {
 
   debit(id: string, costUsd: number): number {
     const account = this.get(id);
-    account.spentUsd += costUsd;
+    account.spentUsd += Number.isFinite(costUsd) && costUsd > 0 ? costUsd : 0;
     return Math.max(0, account.bondUsd - account.spentUsd);
   }
 
-  slash(id: string, penaltyUsd: number): void {
+  // Returns what was actually taken, which is never more than the bond holds.
+  slash(id: string, penaltyUsd: number): number {
     const account = this.get(id);
     const remaining = Math.max(0, account.bondUsd - account.spentUsd);
     const taken = Math.min(remaining, Math.max(0, penaltyUsd));
     account.spentUsd += taken;
     account.slashes += 1;
+    return taken;
   }
 
   setBond(id: string, bondUsd: number): void {
