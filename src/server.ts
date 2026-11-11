@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { config } from "./config.js";
 import { Ledger } from "./ledger.js";
 import { Run } from "./agent.js";
+import { checkKey } from "./otari.js";
 
 // Stateless by design: one request runs one task and streams it back. Nothing
 // is kept between requests, so it runs the same on a single server and on
@@ -53,6 +54,30 @@ app.get("/api/state", (_req, res) => {
       .map((user) => ({ id: user.id, label: user.label })),
     accessCode: config.accessCode.length > 0,
   });
+});
+
+app.post("/api/key", async (req, res) => {
+  const key = ownKey(req.header("x-otari-key"));
+  if (!key) {
+    res.status(400).json({ ok: false, error: "That doesn't look like a full key. Copy it again." });
+    return;
+  }
+  if (config.mock) {
+    res.json({ ok: true });
+    return;
+  }
+  try {
+    const result = await checkKey(key, config.baseUrl);
+    if (result.ok) {
+      res.json({ ok: true });
+    } else if (result.status === 401 || result.status === 403) {
+      res.status(400).json({ ok: false, error: "Otari didn't accept this key. Check you copied all of it." });
+    } else {
+      res.status(502).json({ ok: false, error: "Couldn't reach Otari to check the key. Try again in a moment." });
+    }
+  } catch {
+    res.status(502).json({ ok: false, error: "Couldn't reach Otari to check the key. Try again in a moment." });
+  }
 });
 
 app.post("/api/run", async (req, res) => {

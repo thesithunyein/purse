@@ -235,7 +235,11 @@ function mockChat(req: ChatRequest): Promise<ChatResult> {
       }
       const stage = req.tools?.length ? req.tools[0] : "plain";
       const text = last.includes("settle this run")
-        ? JSON.stringify({ factsComplete: true, reason: "simulated run produced concrete numbers" })
+        ? JSON.stringify({
+            factsComplete: true,
+            reason: "simulated run produced concrete numbers",
+            answer: "Test mode answer. A real run shows a short, plain answer here with the number and its source.",
+          })
         : `Simulated ${stage} output for ${req.model}.`;
       resolve({
         id: `mock_${Date.now()}`,
@@ -258,4 +262,13 @@ function mockChat(req: ChatRequest): Promise<ChatResult> {
       });
     }, 350);
   });
+}
+
+// A free check that a key works before anyone spends on it: list the models
+// the key can reach. Nothing is billed for this call.
+export async function checkKey(apiKey: string, baseUrl: string): Promise<{ ok: boolean; status: number; detail?: string }> {
+  const response = await fetch(`${baseUrl}/models`, { headers: { "Otari-Key": apiKey } });
+  if (response.ok) return { ok: true, status: response.status };
+  const raw = await response.text();
+  return { ok: false, status: response.status, detail: errorFromResponse(response.status, response.statusText, response.headers, raw).detail };
 }

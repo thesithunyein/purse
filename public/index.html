@@ -82,6 +82,21 @@
       .connect .row { display: flex; gap: 8px; }
       .connect input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 14px; background: var(--card); color: var(--text); }
       .connect p { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+      .connect ol { margin: 0 0 12px; padding-left: 20px; font-size: 13.5px; color: var(--text); }
+      .connect ol li { margin: 2px 0; }
+      .connect .msg { margin-top: 8px; font-size: 13px; min-height: 18px; }
+      .connect .msg.bad { color: var(--bad); }
+      .connect .msg.ok { color: var(--ok); }
+      .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+      .answer-head { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+      .answer-head span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+      .copy { background: none; border: 1px solid var(--line); border-radius: 7px; padding: 3px 9px; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+      .working { white-space: pre-wrap; font-size: 13px; color: var(--muted); margin-top: 8px; }
+      .words { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+      .words div { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+      .words b { display: block; margin-bottom: 2px; }
+      .words span { color: var(--muted); font-size: 14px; }
+      @media (max-width: 820px) { .words { grid-template-columns: 1fr; } }
 
       textarea { width: 100%; min-height: 104px; border: 0; outline: none; resize: vertical; background: transparent; color: var(--text); font: inherit; font-size: 16.5px; padding: 12px 0 0; }
       textarea::placeholder { color: #9a9e98; }
@@ -112,7 +127,7 @@
       .badge.run { background: var(--soft); color: var(--muted); }
       .verdict p { margin: 0; }
       .verdict .sub { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
-      .answer { white-space: pre-wrap; margin: 16px 0 0; padding: 14px 16px; background: var(--soft); border-radius: 10px; font-size: 14.5px; display: none; }
+      .answer { white-space: pre-wrap; margin: 6px 0 0; padding: 14px 16px; background: var(--soft); border-radius: 10px; font-size: 15.5px; }
       ol.steps { list-style: none; padding: 0; margin: 16px 0 0; }
       ol.steps li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
       ol.steps li:first-child { border-top: 0; }
@@ -233,15 +248,22 @@
             </div>
           </div>
           <div class="connect" id="connect">
+            <label>Connect Otari to pay for your questions</label>
+            <ol>
+              <li>Make a free account at <a href="https://otari.ai" target="_blank" rel="noopener">otari.ai</a> and add a little credit.</li>
+              <li>Open <b>API keys</b> and click <b>Create key</b>.</li>
+              <li>Copy the key and paste it below.</li>
+            </ol>
             <label for="keyinput">Your Otari API key</label>
             <div class="row">
               <input id="keyinput" type="password" autocomplete="off" spellcheck="false" placeholder="otk_…" />
-              <button class="primary" id="savekey">Save</button>
+              <button class="primary" id="savekey">Connect</button>
             </div>
-            <p>Saved in this browser only. Sent with each run, never stored on our server. You pay Otari directly. <a href="https://otari.ai" target="_blank" rel="noopener">Get a key</a></p>
+            <div class="msg" id="keymsg"></div>
+            <p>Your key stays in this browser. It's sent only with your own questions and never saved on our server. <button class="link" id="forget" style="display:none;font-weight:500">Remove key</button></p>
           </div>
 
-          <textarea id="task" placeholder="What do you want to find out?"></textarea>
+          <textarea id="task" placeholder="Ask anything about prices, fees or sending money. For example: How much is 0.1 ETH in dollars?"></textarea>
           <div class="bar">
             <label class="budget">Spend up to
               <span class="money"><span>$</span><input id="bond" type="number" step="0.01" min="0.01" value="0.20" /></span>
@@ -251,10 +273,11 @@
               <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
             </button>
           </div>
+          <div class="hint">Most questions cost about 2¢. You're never charged more than your limit.</div>
           <div class="examples" id="examples">
-            <button data-task="What does a USDC transfer on Base cost right now? Estimate the total for three transfers.">Gas cost on Base</button>
-            <button data-task="Find the current ETH price and work out what 2.5 ETH is worth in USD.">ETH to USD</button>
-            <button data-task="What is the current US federal funds rate, and what is 4% of $12,500 per year?">Interest math</button>
+            <button data-task="How much is 0.1 ETH worth in US dollars right now?">What's 0.1 ETH worth?</button>
+            <button data-task="What does it cost in fees to send $50 of USDC on the Base network right now?">Fee to send $50 USDC</button>
+            <button data-task="Is it cheaper right now to send USDC on Ethereum or on Base? Give the fee for each in dollars.">Ethereum or Base: which is cheaper?</button>
           </div>
         </div>
 
@@ -271,10 +294,14 @@
               <p class="sub" id="sub"></p>
             </div>
           </div>
-          <div class="answer" id="answer"></div>
+          <div id="answerbox" style="display:none">
+            <div class="answer-head"><span>Answer</span><button class="copy" id="copy">Copy</button></div>
+            <div class="answer" id="answer"></div>
+          </div>
           <ol class="steps" id="steps"></ol>
           <details>
-            <summary>Details</summary>
+            <summary>Show the working</summary>
+            <div class="working" id="working"></div>
             <div class="log" id="log"></div>
           </details>
         </div>
@@ -282,6 +309,18 @@
         <div class="history" id="history"></div>
       </div>
     </div>
+
+    <section class="info" id="words">
+      <div class="wrap">
+        <h2>New to crypto?</h2>
+        <p>Three words you'll see in answers.</p>
+        <div class="words">
+          <div><b>Gas fee</b><span>The small fee a network charges to move money. It changes with how busy the network is.</span></div>
+          <div><b>USDC</b><span>A digital dollar. One USDC is meant to stay worth one US dollar.</span></div>
+          <div><b>Ethereum and Base</b><span>Networks that move crypto. Base is built on Ethereum and usually costs less to use.</span></div>
+        </div>
+      </div>
+    </section>
 
     <section class="info" id="how">
       <div class="wrap">
@@ -376,11 +415,11 @@
       const ENDINGS = {
         settlement_released: ["ok", "Done", "Finished within your limit."],
         settlement_stopped: ["warn", "No answer", "No solid answer found. You only paid for what ran."],
-        purse_guard: ["bad", "Blocked", "This request isn't allowed. The limit was forfeited."],
-        otari_guardrail: ["bad", "Blocked", "Unsafe text was detected. The limit was forfeited."],
+        purse_guard: ["bad", "Blocked", "This request isn't allowed, so nothing ran."],
+        otari_guardrail: ["bad", "Blocked", "Unsafe text was found, so it stopped. You only paid for steps that ran."],
         purse_reserve: ["warn", "Limit reached", "The next step could go over your limit, so it stopped."],
         otari_budget: ["warn", "Account limit", "Your Otari account hit its spending cap."],
-        error: ["bad", "Failed", "Something went wrong."],
+        error: ["bad", "Didn't finish", "Something went wrong. You only paid for steps that ran."],
       };
 
       const HISTORY_KEY = "purse-history";
@@ -389,6 +428,9 @@
       const $ = (id) => document.getElementById(id);
       const usd = (n) => "$" + Number(n || 0).toFixed(Number(n) > 0 && Number(n) < 0.01 ? 4 : 2);
       const exact = (n) => "$" + Number(n || 0).toFixed(5);
+      // What Otari actually charged. Older saved runs only have spentUsd.
+      const billed = (o) => (typeof o.billedUsd === "number" ? o.billedUsd : o.spentUsd);
+      const cents = (n) => (n > 0 && n < 0.01 ? "under 1¢" : n < 1 ? (n * 100).toFixed(1).replace(/\.0$/, "") + "¢" : usd(n));
       const esc = (t) =>
         String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -411,6 +453,7 @@
           : using === "shared" ? (state.mock ? "Test account" : "Using a shared account")
           : "Otari key not connected";
         $("keybtn").textContent = state.key ? "Change" : "Connect";
+        $("forget").style.display = state.key ? "inline" : "none";
         const shared = $("shared");
         shared.innerHTML = "";
         if (!state.key && state.accounts.length > 1) {
@@ -450,7 +493,7 @@
           item.className = "item";
           item.innerHTML =
             '<span class="t">' + esc(entry.outcome.task) + '</span><span class="s">' +
-            esc(title) + " · " + usd(entry.outcome.spentUsd) + "</span>";
+            esc(title) + " · " + cents(billed(entry.outcome)) + "</span>";
           item.onclick = () => replay(entry);
           history.appendChild(item);
         }
@@ -477,7 +520,8 @@
         $("badge").textContent = "Running";
         $("headline").textContent = "Working on it…";
         $("sub").textContent = "";
-        $("answer").style.display = "none";
+        $("answerbox").style.display = "none";
+        $("working").textContent = "";
         $("log").innerHTML = "";
         $("steps").innerHTML = "";
         for (const [key, label] of STEPS) {
@@ -513,7 +557,10 @@
         $("badge").className = "badge " + tone;
         $("badge").textContent = title;
         $("headline").textContent = sentence;
-        $("sub").textContent = "Spent " + exact(outcome.spentUsd) + (tone === "ok" ? "" : outcome.reason ? " · " + outcome.reason : "");
+        const paid = billed(outcome);
+        $("sub").textContent =
+          "You paid " + (paid > 0 ? cents(paid) + " (" + exact(paid) + ")" : "nothing") +
+          (tone === "ok" || outcome.endedBy === "purse_guard" ? "" : outcome.reason ? " · " + outcome.reason : "");
         for (const li of $("steps").children) {
           const dot = li.querySelector(".dot");
           if (dot.className === "dot" || dot.className === "dot running") {
@@ -521,11 +568,13 @@
             li.querySelector(".why").textContent = li.querySelector(".why").textContent || "skipped";
           }
         }
-        if (outcome.answer && outcome.verdict === "released") {
-          $("answer").textContent = outcome.answer;
-          $("answer").style.display = "block";
+        const text = outcome.answer || (outcome.verdict === "released" ? outcome.working : "");
+        if (text) {
+          $("answer").textContent = text;
+          $("answerbox").style.display = "block";
         }
-        showMeter(outcome.remainingUsd, outcome.bondUsd);
+        $("working").textContent = outcome.working || "";
+        showMeter(Math.max(0, outcome.bondUsd - paid), outcome.bondUsd);
       }
 
       function fail(message) {
@@ -626,13 +675,39 @@
         $("connect").classList.toggle("open");
         if ($("connect").classList.contains("open")) $("keyinput").focus();
       };
-      $("savekey").onclick = () => {
+      // Check the key with Otari before saving it, so a bad paste fails here
+      // and not halfway through a question. The check costs nothing.
+      $("savekey").onclick = async () => {
         const key = $("keyinput").value.trim();
-        if (key) { state.key = key; store.set(KEY_KEY, key); }
-        else { state.key = ""; store.drop(KEY_KEY); }
-        $("keyinput").value = "";
-        $("connect").classList.remove("open");
-        renderKey();
+        const msg = $("keymsg");
+        if (!key) { msg.className = "msg bad"; msg.textContent = "Paste your key first."; return; }
+        $("savekey").disabled = true;
+        msg.className = "msg"; msg.textContent = "Checking your key…";
+        try {
+          const res = await fetch("/api/key", { method: "POST", headers: { "x-otari-key": key } });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) {
+            msg.className = "msg bad";
+            msg.textContent = data.error || "That key didn't work.";
+            return;
+          }
+          state.key = key;
+          store.set(KEY_KEY, key);
+          $("keyinput").value = "";
+          msg.className = "msg ok"; msg.textContent = "Connected. Ask your first question.";
+          renderKey();
+          setTimeout(() => { $("connect").classList.remove("open"); msg.textContent = ""; $("task").focus(); }, 900);
+        } catch {
+          msg.className = "msg bad"; msg.textContent = "Couldn't check the key. Check your connection.";
+        } finally {
+          $("savekey").disabled = false;
+        }
+      };
+      $("forget").onclick = () => { state.key = ""; store.drop(KEY_KEY); $("keymsg").textContent = "Key removed from this browser."; renderKey(); };
+      $("copy").onclick = async () => {
+        try { await navigator.clipboard.writeText($("answer").textContent); $("copy").textContent = "Copied"; }
+        catch { $("copy").textContent = "Select and copy"; }
+        setTimeout(() => { $("copy").textContent = "Copy"; }, 1500);
       };
       $("keyinput").addEventListener("keydown", (event) => { if (event.key === "Enter") $("savekey").click(); });
       $("run").onclick = start;

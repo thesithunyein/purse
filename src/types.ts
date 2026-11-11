@@ -95,8 +95,13 @@ export type RunOutcome = {
   // Who ended the run: Purse's own ledger, or a gate inside Otari.
   endedBy?: "purse_guard" | "purse_reserve" | "otari_budget" | "otari_guardrail" | "settlement" | "error";
   reason?: string;
-  // What the agent found, shown to the person who asked.
+  // A short plain-language answer for the person who asked, from the settle
+  // model. `working` keeps the raw research and verification lines.
   answer?: string;
+  working?: string;
+  // What Otari actually billed for model and tool calls. Unlike spentUsd it
+  // never includes a slash, which is bookkeeping inside the bond, not money.
+  billedUsd: number;
   bondUsd: number;
   spentUsd: number;
   remainingUsd: number;

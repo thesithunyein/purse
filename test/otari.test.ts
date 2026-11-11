@@ -95,3 +95,15 @@ test("otariChat sends guardrails and the end user, and reads routing headers", a
   assert.equal(result.costUsd, 0.00002);
   assert.equal(result.guardrails[0]?.valid, true);
 });
+
+test("checkKey lists models with the key and reports a refusal", async (t) => {
+  const { checkKey } = await import("../src/otari.js");
+  let seen = "";
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    seen = `${url} ${(init.headers as Record<string, string>)["Otari-Key"]}`;
+    return new Response(JSON.stringify({ detail: "Invalid API key" }), { status: 401 });
+  });
+  const result = await checkKey("otk_bad", "https://example.test/api/v1");
+  assert.equal(seen, "https://example.test/api/v1/models otk_bad");
+  assert.deepEqual(result, { ok: false, status: 401, detail: "Invalid API key" });
+});

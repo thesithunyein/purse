@@ -23,15 +23,17 @@ const SYSTEM = [
   "Never invent chain state, prices, or transaction hashes. If you need a number, use a tool.",
 ].join(" ");
 
-export type Decision = { factsComplete: boolean; reason: string };
+export type Decision = { factsComplete: boolean; reason: string; answer?: string };
 
 function decisionFrom(value: unknown): Decision | null {
   if (!value || typeof value !== "object" || !("factsComplete" in value)) return null;
-  const record = value as { factsComplete?: unknown; reason?: unknown };
-  return {
+  const record = value as { factsComplete?: unknown; reason?: unknown; answer?: unknown };
+  const decision: Decision = {
     factsComplete: record.factsComplete === true,
     reason: typeof record.reason === "string" && record.reason.trim() ? record.reason : "no reason given",
   };
+  if (typeof record.answer === "string" && record.answer.trim()) decision.answer = record.answer.trim();
+  return decision;
 }
 
 // The settle model is asked for JSON only, but models wrap it in code fences or
@@ -88,6 +90,7 @@ export class Run {
       verdict: "running",
       bondUsd: ledger.get(user).bondUsd,
       spentUsd: 0,
+      billedUsd: 0,
       remainingUsd: ledger.remaining(user),
     };
   }
@@ -175,6 +178,7 @@ export class Run {
       if (error instanceof OtariError && error.edge && (error.status === 502 || error.status === 504)) {
         const estimate = Math.min(reserveUsd, this.ledger.remaining(this.user));
         const remaining = this.ledger.debit(this.user, estimate);
+        this.outcome.billedUsd += estimate;
         this.sync();
         this.emit({
           stage,
@@ -192,6 +196,7 @@ export class Run {
     }
 
     const remaining = this.ledger.debit(this.user, result.costUsd);
+    this.outcome.billedUsd += Number.isFinite(result.costUsd) && result.costUsd > 0 ? result.costUsd : 0;
     this.sync();
 
     const notes = [note];
@@ -266,6 +271,11 @@ export class Run {
       const scope = error.budgetScope ? ` (scope: ${error.budgetScope})` : "";
       this.emit({ stage: "ledger", status: "refused", note: `otari budget gate refused${scope}: ${error.detail}` });
       this.finish("stopped", `otari budget${scope}: ${error.detail}`, "otari_budget");
+      return;
+    }
+    if (error instanceof OtariError && (error.status === 401 || (error.status === 403 && !error.code))) {
+      this.emit({ stage: "ledger", status: "error", note: `gateway refused the key: ${error.detail}` });
+      this.finish("stopped", "Otari did not accept this API key.", "error");
       return;
     }
     if (error instanceof OtariError) {
@@ -387,17 +397,19 @@ export class Run {
             `Verification: ${verified}`,
             "factsComplete is true when the facts and the verification together answer the task with concrete numbers, a concrete cost, or a clear yes or no.",
             "It is false only when the run has no usable answer at all.",
-            'Answer with JSON only, no prose: {"factsComplete":true|false,"reason":"one sentence"}',
+            "answer is for someone new to crypto: two or three short sentences in plain words, with the key number and where it came from. Explain any term like gas or USDC in a few words. No markdown.",
+            'Answer with JSON only, no prose: {"factsComplete":true|false,"reason":"one sentence","answer":"plain answer"}',
           ].join("\n\n"),
         },
       ],
       undefined,
       "settling with the large model",
-      { maxTokens: 300 },
+      { maxTokens: 450 },
     );
 
-    this.outcome.answer = [research, verified].map((part) => part.trim()).filter(Boolean).join("\n\n");
+    this.outcome.working = [research, verified].map((part) => part.trim()).filter(Boolean).join("\n\n");
     const parsed = parseDecision(decision);
+    this.outcome.answer = parsed.answer;
     const reason = parsed.reason.replace(/[.\s]+$/, "");
 
     this.sync();
