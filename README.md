@@ -178,11 +178,22 @@ npm run typecheck
 
 ## Deploy
 
-`render.yaml` deploys the `otari` branch as a Docker service on Render
-(New → Blueprint). Set `PURSE_ACCESS_CODE` before anything else: the page asks
-for the code, and every `/api` route refuses requests without it, so strangers
-cannot spend the bonds. Keys and the code go in the Render dashboard, never in
-the repo.
+**Vercel.** Import the repo, pick the `otari` branch, and add the variables from
+`.env.example` under Settings → Environment Variables. Vercel finds the Express
+app in `src/server.ts` and serves `public/` from its CDN. No `vercel.json` is
+needed.
+
+The server keeps nothing between requests: one request runs one task and
+streams it back. So it works on serverless, where each request may hit a fresh
+instance. Run history stays in the visitor's browser.
+
+Set these first on any public deploy:
+
+- `PURSE_ACCESS_CODE`: the page asks for it, and `/api` refuses requests without it
+- `PURSE_MAX_BUDGET_USD`: the most one run may spend (default `1.00`)
+- an Otari budget on each key, so the account has a hard cap too
+
+`render.yaml` and the `Dockerfile` still work for a long-running server.
 
 ## Demonstrating each capability
 

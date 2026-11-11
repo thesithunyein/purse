@@ -95,4 +95,8 @@ export const config = {
   // When set, every /api route needs this code (header or ?code=). Use it on a
   // public deploy so strangers cannot spend the bonds.
   accessCode: env("PURSE_ACCESS_CODE", ""),
+
+  // The most one run may be given. A public page can ask for any number, so
+  // this caps what a single request can spend on the account's Otari key.
+  maxBudgetUsd: Number(env("PURSE_MAX_BUDGET_USD", "1.00")),
 };

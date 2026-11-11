@@ -6,15 +6,20 @@ import { config } from "./config.js";
 import { Ledger } from "./ledger.js";
 import { Run } from "./agent.js";
 
+// Stateless by design: one request runs one task and streams it back. Nothing
+// is kept between requests, so it runs the same on a single server and on
+// serverless hosts (Vercel), where each request may land on a fresh instance.
+// The budget belongs to the run. The account's Otari key, and the budget Otari
+// holds for it, are what persist across runs.
+
 const here = dirname(fileURLToPath(import.meta.url));
-const ledger = new Ledger(config.users);
-const runs = new Map<string, Run>();
 
 const app = express();
 app.use(express.json({ limit: "64kb" }));
+// Local only. Vercel ignores express.static and serves public/ from its CDN.
 app.use(express.static(join(here, "..", "public")));
 
-// A public deploy spends real bonds on a real Otari key, so every API route
+// A public deploy spends real money on a real Otari key, so every API route
 // can sit behind a shared access code. Unset means open, for local use.
 function codeMatches(given: string): boolean {
   const expected = Buffer.from(config.accessCode);
@@ -24,10 +29,7 @@ function codeMatches(given: string): boolean {
 
 app.use("/api", (req, res, next) => {
   if (!config.accessCode) return next();
-  const header = req.header("x-purse-code") ?? "";
-  // EventSource cannot set headers, so the stream route also takes ?code=.
-  const query = typeof req.query.code === "string" ? req.query.code : "";
-  if (codeMatches(header) || codeMatches(query)) return next();
+  if (codeMatches(req.header("x-purse-code") ?? "")) return next();
   res.status(401).json({ error: "access code required" });
 });
 
@@ -40,118 +42,77 @@ app.get("/api/state", (_req, res) => {
     mock: config.mock,
     loopModel: config.loopModel,
     settleModel: config.settleModel,
-    mcpServers: config.mcpServers.map((server) => ({ name: server.name, url: server.url })),
     guardrailProfile: config.guardrailProfile || null,
     serviceKeyMode: config.serviceKeyMode,
-    accounts: ledger.list().map((account) => ({
-      id: account.id,
-      label: account.label,
-      hasKey: account.apiKey.length > 0,
-      bondUsd: account.bondUsd,
-      remainingUsd: ledger.remaining(account.id),
-      spentUsd: account.spentUsd,
-      slashes: account.slashes,
+    maxBudgetUsd: config.maxBudgetUsd,
+    defaultBudgetUsd: config.users[0]?.bondUsd ?? 0.2,
+    accounts: config.users.map((user) => ({
+      id: user.id,
+      label: user.label,
+      hasKey: user.apiKey.length > 0,
     })),
-    runs: [...runs.values()].slice(-10).reverse().map((run) => run.outcome),
   });
 });
 
-app.post("/api/run", (req, res) => {
-  const body = req.body as { user?: unknown; task?: unknown };
-  const user = typeof body.user === "string" ? body.user : "";
+app.post("/api/run", async (req, res) => {
+  const body = req.body as { user?: unknown; task?: unknown; budgetUsd?: unknown };
+  const userId = typeof body.user === "string" ? body.user : "";
   const task = typeof body.task === "string" ? body.task.trim() : "";
+  const budgetUsd = typeof body.budgetUsd === "number" ? body.budgetUsd : Number.NaN;
+  const account = config.users.find((user) => user.id === userId);
 
-  if (!user || !task) {
-    res.status(400).json({ error: "user and task are required" });
+  if (!account || !task) {
+    res.status(400).json({ error: "Pick an account and write a task." });
     return;
   }
   if (task.length > 2000) {
-    res.status(400).json({ error: "task is too long" });
+    res.status(400).json({ error: "Keep the task under 2,000 characters." });
     return;
   }
-  try {
-    ledger.get(user);
-  } catch {
-    res.status(400).json({ error: `unknown user ${user}` });
+  if (!Number.isFinite(budgetUsd) || budgetUsd <= 0 || budgetUsd > config.maxBudgetUsd) {
+    res.status(400).json({ error: `Set a budget between $0.01 and $${config.maxBudgetUsd.toFixed(2)}.` });
+    return;
+  }
+  if (!account.apiKey && !config.mock) {
+    res.status(400).json({ error: `${account.label} has no Otari key yet.` });
     return;
   }
 
-  const run = new Run(user, task, ledger);
-  runs.set(run.runId, run);
-  res.status(201).json({ runId: run.runId });
-
-  void run.execute();
-});
-
-app.get("/api/stream/:runId", (req, res) => {
-  const run = runs.get(req.params.runId);
-  if (!run) {
-    res.status(404).json({ error: "run not found" });
-    return;
-  }
+  const ledger = new Ledger([{ ...account, bondUsd: budgetUsd }]);
+  const run = new Run(account.id, task, ledger);
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
   });
-
   const send = (payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
-  for (const event of run.events) send({ type: "event", event });
-  if (run.outcome.verdict !== "running") {
-    send({ type: "done", outcome: run.outcome });
-    res.end();
-    return;
-  }
-
   const unsubscribe = run.subscribe((event) => send({ type: "event", event }));
-
-  const interval = setInterval(() => {
-    if (run.outcome.verdict === "running") {
-      res.write(": keepalive\n\n");
-      return;
-    }
-    send({ type: "done", outcome: run.outcome });
-    clearInterval(interval);
+  const keepalive = setInterval(() => res.write(": keepalive\n\n"), 10_000);
+  try {
+    const outcome = await run.execute();
+    send({ type: "done", outcome });
+  } catch (error) {
+    // execute() settles its own errors; this only guards the stream itself.
+    send({ type: "fail", error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    clearInterval(keepalive);
     unsubscribe();
     res.end();
-  }, 1000);
+  }
+});
 
-  req.on("close", () => {
-    clearInterval(interval);
-    unsubscribe();
+if (!process.env.VERCEL) {
+  app.listen(config.port, () => {
+    console.log(`purse on http://localhost:${config.port}`);
+    if (config.mock) console.log("PURSE_MOCK=1, every model call is simulated");
+    if (!config.accessCode) console.log("PURSE_ACCESS_CODE is not set, the API is open to anyone who can reach this port");
+    if (config.loopModel === config.settleModel) {
+      console.warn("loop and settle models are the same id, set PURSE_SETTLE_MODEL to a second open-weight model");
+    }
   });
-});
+}
 
-app.post("/api/bond", (req, res) => {
-  const body = req.body as { user?: unknown; bondUsd?: unknown };
-  const user = typeof body.user === "string" ? body.user : "";
-  const bondUsd = typeof body.bondUsd === "number" ? body.bondUsd : Number.NaN;
-  if (!user || !Number.isFinite(bondUsd) || bondUsd < 0) {
-    res.status(400).json({ error: "user and a non negative bondUsd are required" });
-    return;
-  }
-  try {
-    ledger.setBond(user, bondUsd);
-  } catch {
-    res.status(400).json({ error: `unknown user ${user}` });
-    return;
-  }
-  res.json({ ok: true });
-});
-
-app.post("/api/reset", (_req, res) => {
-  ledger.reset();
-  res.json({ ok: true });
-});
-
-app.listen(config.port, () => {
-  console.log(`purse on http://localhost:${config.port}`);
-  if (config.mock) console.log("PURSE_MOCK=1, every model call is simulated");
-  if (!config.accessCode) console.log("PURSE_ACCESS_CODE is not set, the API is open to anyone who can reach this port");
-  if (config.loopModel === config.settleModel) {
-    console.warn("loop and settle models are the same id, set PURSE_SETTLE_MODEL to a second open-weight model");
-  }
-});
+export default app;

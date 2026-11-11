@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
     <title>Purse</title>
     <style>
       :root {
@@ -21,23 +22,6 @@
         --accent: #111113;
         --radius: 12px;
         --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #0d0d0f;
-          --card: #151518;
-          --line: #26262b;
-          --text: #ededf0;
-          --muted: #8e8e98;
-          --soft: #1c1c20;
-          --ok: #3ccf91;
-          --ok-bg: #12261d;
-          --warn: #e5a540;
-          --warn-bg: #2a2112;
-          --bad: #f06a63;
-          --bad-bg: #2c1514;
-          --accent: #ededf0;
-        }
       }
       * { box-sizing: border-box; }
       body {
@@ -194,10 +178,10 @@
         </div>
       </div>
 
-      <div class="balance">
+      <div class="balance" id="balance" style="display:none">
         <strong id="left">$0.00</strong><span id="of">left</span>
       </div>
-      <div class="meter"><div id="meter"></div></div>
+      <div class="meter" id="meterbox" style="display:none"><div id="meter"></div></div>
 
       <div class="card result" id="result">
         <div class="verdict">
@@ -219,7 +203,7 @@
 
       <footer>
         <span id="setup"></span>
-        <button id="reset">Reset budgets</button>
+        <button id="clear">Clear history</button>
       </footer>
     </div>
 
@@ -244,67 +228,77 @@
         error: ["bad", "Failed", "Something went wrong."],
       };
 
-      const state = { user: "", source: null, code: "", accounts: [] };
+      const HISTORY_KEY = "purse-history";
+      const state = { user: "", code: "", accounts: [], max: 1, running: false };
       const $ = (id) => document.getElementById(id);
       const usd = (n) => "$" + Number(n || 0).toFixed(Number(n) > 0 && Number(n) < 0.01 ? 4 : 2);
       const exact = (n) => "$" + Number(n || 0).toFixed(5);
       const esc = (t) =>
         String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+      // History lives in this browser only. Storage can be blocked; then it is just off.
+      function readHistory() {
+        try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; }
+      }
+      function writeHistory(list) {
+        try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 15))); } catch {}
+      }
       try { state.code = sessionStorage.getItem("purse-code") || ""; } catch {}
 
-      async function api(path, options = {}) {
-        const headers = Object.assign({}, options.headers || {}, state.code ? { "x-purse-code": state.code } : {});
-        const res = await fetch(path, Object.assign({}, options, { headers }));
-        if (res.status === 401) {
-          const code = window.prompt("Enter your access code");
-          if (code) {
-            state.code = code.trim();
-            try { sessionStorage.setItem("purse-code", state.code); } catch {}
-            return api(path, options);
-          }
-        }
-        return res;
+      function headers(extra) {
+        return Object.assign({}, extra || {}, state.code ? { "x-purse-code": state.code } : {});
+      }
+
+      function askCode() {
+        const code = window.prompt("Enter your access code");
+        if (!code) return false;
+        state.code = code.trim();
+        try { sessionStorage.setItem("purse-code", state.code); } catch {}
+        return true;
       }
 
       async function loadState() {
-        const res = await api("/api/state");
+        const res = await fetch("/api/state", { headers: headers() });
+        if (res.status === 401) { if (askCode()) return loadState(); return; }
         if (!res.ok) return;
         const data = await res.json();
         state.accounts = data.accounts;
+        state.max = data.maxBudgetUsd;
         if (!state.user && data.accounts[0]) state.user = data.accounts[0].id;
+        $("bond").max = String(data.maxBudgetUsd);
+        if (!$("bond").dataset.touched) $("bond").value = Number(data.defaultBudgetUsd).toFixed(2);
 
         $("testmode").style.display = data.mock ? "block" : "none";
         $("setup").textContent =
           (data.guardrailProfile ? "Safety check on" : "Safety check off") + " · Runs on open models via Otari";
+        renderAccounts(data.mock);
+        renderHistory();
+      }
 
+      function renderAccounts(mock) {
         const box = $("accounts");
         box.innerHTML = "";
-        for (const account of data.accounts) {
+        for (const account of state.accounts) {
           const chip = document.createElement("button");
           chip.className = "chip" + (account.id === state.user ? " active" : "");
-          chip.innerHTML = esc(account.label) + (account.hasKey || data.mock ? "" : "<small>no key</small>");
-          chip.onclick = () => { state.user = account.id; loadState(); };
+          chip.innerHTML = esc(account.label) + (account.hasKey || mock ? "" : "<small>no key</small>");
+          chip.onclick = () => { state.user = account.id; renderAccounts(mock); };
           box.appendChild(chip);
         }
+      }
 
-        const current = data.accounts.find((account) => account.id === state.user);
-        if (current) {
-          $("left").textContent = usd(current.remainingUsd);
-          $("of").textContent = "left of " + usd(current.bondUsd);
-          const pct = current.bondUsd > 0 ? (current.remainingUsd / current.bondUsd) * 100 : 0;
-          $("meter").style.width = Math.max(0, Math.min(100, pct)) + "%";
-          $("meter").style.background = pct < 15 ? "var(--bad)" : pct < 40 ? "var(--warn)" : "var(--ok)";
-          if (document.activeElement !== $("bond")) $("bond").value = current.bondUsd.toFixed(2);
-        }
-
-        const runs = (data.runs || []).filter((run) => run.verdict !== "running");
+      function renderHistory() {
+        const runs = readHistory();
         const history = $("history");
         history.innerHTML = runs.length ? "<h3>Recent</h3>" : "";
-        for (const run of runs) {
-          const [, title] = ending(run);
+        $("clear").style.display = runs.length ? "inline" : "none";
+        for (const entry of runs) {
+          const [, title] = ending(entry.outcome);
           const item = document.createElement("button");
-          item.innerHTML = '<span class="t">' + esc(run.task) + "</span><span class=\"s\">" + esc(title) + " · " + usd(run.spentUsd) + "</span>";
-          item.onclick = () => open(run.runId);
+          item.innerHTML =
+            '<span class="t">' + esc(entry.outcome.task) + '</span><span class="s">' +
+            esc(title) + " · " + usd(entry.outcome.spentUsd) + "</span>";
+          item.onclick = () => replay(entry);
           history.appendChild(item);
         }
       }
@@ -312,6 +306,16 @@
       function ending(outcome) {
         if (outcome.endedBy === "settlement") return ENDINGS["settlement_" + outcome.verdict] || ENDINGS.error;
         return ENDINGS[outcome.endedBy] || ENDINGS.error;
+      }
+
+      function showMeter(left, total) {
+        $("balance").style.display = "flex";
+        $("meterbox").style.display = "block";
+        $("left").textContent = usd(left);
+        $("of").textContent = "left of " + usd(total);
+        const pct = total > 0 ? (left / total) * 100 : 0;
+        $("meter").style.width = Math.max(0, Math.min(100, pct)) + "%";
+        $("meter").style.background = pct < 15 ? "var(--bad)" : pct < 40 ? "var(--warn)" : "var(--ok)";
       }
 
       function resetResult() {
@@ -331,7 +335,7 @@
         }
       }
 
-      function onEvent(event) {
+      function onEvent(event, total) {
         const li = $("step-" + event.stage);
         if (li) {
           const dot = li.querySelector(".dot");
@@ -341,6 +345,7 @@
           if (event.status === "ok" && event.costUsd !== undefined) li.querySelector(".cost").textContent = exact(event.costUsd);
           if (event.fallback) li.querySelector(".why").textContent = "backup model";
         }
+        if (event.remainingUsd !== undefined) showMeter(event.remainingUsd, total);
         const line = document.createElement("div");
         line.textContent =
           event.stage + " · " + event.status +
@@ -367,55 +372,93 @@
           $("answer").textContent = outcome.answer;
           $("answer").style.display = "block";
         }
-        $("run").disabled = false;
-        loadState();
+        showMeter(outcome.remainingUsd, outcome.bondUsd);
       }
 
-      function open(runId) {
+      function fail(message) {
+        $("badge").className = "badge bad";
+        $("badge").textContent = "Not started";
+        $("headline").textContent = message;
+        $("steps").innerHTML = "";
+      }
+
+      function replay(entry) {
         resetResult();
-        if (state.source) state.source.close();
-        state.source = new EventSource("/api/stream/" + runId + (state.code ? "?code=" + encodeURIComponent(state.code) : ""));
-        state.source.onmessage = (message) => {
-          const payload = JSON.parse(message.data);
-          if (payload.type === "event") onEvent(payload.event);
-          if (payload.type === "done") { state.source.close(); onDone(payload.outcome); }
-        };
+        for (const event of entry.events) onEvent(event, entry.outcome.bondUsd);
+        onDone(entry.outcome);
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }
 
+      // The run streams back on the same request: text/event-stream over a POST,
+      // read with fetch because EventSource can only GET.
       async function start() {
         const task = $("task").value.trim();
-        if (!task || !state.user) return;
-        $("run").disabled = true;
-        const bondUsd = Number($("bond").value);
-        await api("/api/bond", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user: state.user, bondUsd: Number.isFinite(bondUsd) && bondUsd >= 0 ? bondUsd : 0.2 }),
-        });
-        const res = await api("/api/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user: state.user, task }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          resetResult();
-          $("badge").className = "badge bad";
-          $("badge").textContent = "Not started";
-          $("headline").textContent = data.error || "The run could not start.";
-          $("steps").innerHTML = "";
-          $("run").disabled = false;
+        if (!task || !state.user || state.running) return;
+        const budgetUsd = Number($("bond").value);
+        resetResult();
+        if (!Number.isFinite(budgetUsd) || budgetUsd <= 0 || budgetUsd > state.max) {
+          fail("Set a budget between $0.01 and " + usd(state.max) + ".");
           return;
         }
-        await loadState();
-        open(data.runId);
+        state.running = true;
+        $("run").disabled = true;
+        showMeter(budgetUsd, budgetUsd);
+        const events = [];
+        try {
+          const res = await fetch("/api/run", {
+            method: "POST",
+            headers: headers({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ user: state.user, task, budgetUsd }),
+          });
+          if (res.status === 401) {
+            state.running = false;
+            $("run").disabled = false;
+            if (askCode()) return start();
+            fail("An access code is needed.");
+            return;
+          }
+          if (!res.ok || !res.body) {
+            const data = await res.json().catch(() => ({}));
+            fail(data.error || "The run could not start.");
+            return;
+          }
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let cut;
+            while ((cut = buffer.indexOf("\n\n")) >= 0) {
+              const chunk = buffer.slice(0, cut);
+              buffer = buffer.slice(cut + 2);
+              const line = chunk.split("\n").find((part) => part.startsWith("data: "));
+              if (!line) continue;
+              const payload = JSON.parse(line.slice(6));
+              if (payload.type === "event") { events.push(payload.event); onEvent(payload.event, budgetUsd); }
+              if (payload.type === "done") {
+                onDone(payload.outcome);
+                writeHistory([{ outcome: payload.outcome, events }, ...readHistory()]);
+                renderHistory();
+              }
+              if (payload.type === "fail") fail(payload.error);
+            }
+          }
+        } catch {
+          fail("Lost the connection. Check your network and try again.");
+        } finally {
+          state.running = false;
+          $("run").disabled = false;
+        }
       }
 
       $("run").onclick = start;
+      $("bond").addEventListener("input", () => { $("bond").dataset.touched = "1"; });
       $("task").addEventListener("keydown", (event) => {
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) start();
       });
-      $("reset").onclick = async () => { await api("/api/reset", { method: "POST" }); loadState(); };
+      $("clear").onclick = () => { writeHistory([]); renderHistory(); };
       for (const button of $("examples").querySelectorAll("[data-task]")) {
         button.onclick = () => { $("task").value = button.getAttribute("data-task"); $("task").focus(); };
       }
