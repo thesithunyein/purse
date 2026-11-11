@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "An agent that can only act while it can pay for its own thinking.",
+  "description": "Research with a hard budget: an agent that stops before it spends past your limit.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
@@ -21,5 +21,12 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "license": "MIT",
+  "author": "Sithu Nyein",
+  "homepage": "https://usepurse.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thesithunyein/purse"
   }
 }
