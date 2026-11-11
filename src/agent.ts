@@ -2,12 +2,18 @@ import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { BudgetExhausted, Ledger } from "./ledger.js";
 import { OtariError, otariChat } from "./otari.js";
-import type { LogEvent, Msg, RunOutcome, Stage, ToolType } from "./types.js";
+import type { ChatResult, GuardrailRequest, LogEvent, Msg, RunOutcome, Stage, ToolType } from "./types.js";
 
-const GUARD_RULES = [
+export const GUARD_RULES = [
   { id: "transfer_all", test: /transfer\s+all\s+(funds|balance)/i, note: "asked to transfer the whole balance" },
   { id: "seed_phrase", test: /\b(seed|mnemonic|recovery)\s+phrase\b/i, note: "asked for a seed phrase" },
-  { id: "national_id", test: /\b\d{3}-\d{2}-\d{4}\b/i, note: "contains what looks like a national id number" },
+  {
+    // A bare ###-##-#### also matches part numbers and dates, so the number
+    // only counts when the text calls it an identity number.
+    id: "national_id",
+    test: /\b(ssn|social\s+security(\s+number)?|national\s+id(\s+number)?)\b\D{0,20}\d{3}-?\d{2}-?\d{4}\b/i,
+    note: "contains what looks like a national id number",
+  },
   { id: "override", test: /ignore\s+(all\s+)?(previous|prior)\s+(instructions|rules)/i, note: "tried to override its operating rules" },
 ];
 
@@ -17,27 +23,40 @@ const SYSTEM = [
   "Never invent chain state, prices, or transaction hashes. If you need a number, use a tool.",
 ].join(" ");
 
-type Decision = { factsComplete: boolean; reason: string };
+export type Decision = { factsComplete: boolean; reason: string };
 
-function parseDecision(text: string): Decision {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) {
+function decisionFrom(value: unknown): Decision | null {
+  if (!value || typeof value !== "object" || !("factsComplete" in value)) return null;
+  const record = value as { factsComplete?: unknown; reason?: unknown };
+  return {
+    factsComplete: record.factsComplete === true,
+    reason: typeof record.reason === "string" && record.reason.trim() ? record.reason : "no reason given",
+  };
+}
+
+// The settle model is asked for JSON only, but models wrap it in code fences or
+// add a sentence. Try the whole reply, then each flat {...} that names
+// factsComplete. Anything else settles as "no usable answer", never as a payout.
+export function parseDecision(text: string): Decision {
+  const stripped = text.replace(/```(?:json)?/gi, "").trim();
+  try {
+    const whole = decisionFrom(JSON.parse(stripped));
+    if (whole) return whole;
+  } catch {
+    // not a bare JSON object, look inside it
+  }
+  for (const match of stripped.matchAll(/\{[^{}]*"factsComplete"[^{}]*\}/g)) {
     try {
-      const parsed = JSON.parse(text.slice(start, end + 1)) as {
-        reason?: unknown;
-        factsComplete?: unknown;
-      };
-      return {
-        factsComplete: parsed.factsComplete === true,
-        reason: typeof parsed.reason === "string" ? parsed.reason : "no reason given",
-      };
+      const found = decisionFrom(JSON.parse(match[0]));
+      if (found) return found;
     } catch {
-      // fall through to the safe default
+      // try the next candidate
     }
   }
   return { factsComplete: false, reason: "settlement reply was not parseable" };
 }
+
+const money = (value: number) => `$${value.toFixed(6)}`;
 
 export class Run {
   readonly runId = randomUUID().slice(0, 8);
@@ -49,6 +68,7 @@ export class Run {
 
   private seq = 0;
   private listeners: Array<(event: LogEvent) => void> = [];
+  private warnedUnavailable = new Set<string>();
 
   constructor(user: string, task: string, private ledger: Ledger) {
     this.user = user;
@@ -84,6 +104,22 @@ export class Run {
     this.outcome.remainingUsd = this.ledger.remaining(this.user);
   }
 
+  private guardrails(): GuardrailRequest[] | undefined {
+    if (!config.guardrailProfile) return undefined;
+    return [{ profile: config.guardrailProfile, mode: "block", on_unavailable: config.guardrailOnUnavailable }];
+  }
+
+  private reserve(stage: Stage, model: string, tools: ToolType[] | undefined, amount: number): void {
+    try {
+      this.ledger.requireReserve(this.user, amount);
+    } catch (error) {
+      if (error instanceof BudgetExhausted) {
+        this.emit({ stage, status: "refused", requestedModel: model, tools, note: error.message });
+      }
+      throw error;
+    }
+  }
+
   private async stage(
     stage: Stage,
     model: string,
@@ -92,19 +128,15 @@ export class Run {
     note: string,
     extra?: { maxTokens?: number; useMcp?: boolean },
   ): Promise<string> {
-    const apiKey = this.ledger.get(this.user).apiKey;
+    const account = this.ledger.get(this.user);
+    const apiKey = account.apiKey;
     if (!apiKey && !config.mock) throw new Error(`no Otari key configured for ${this.user}`);
 
     const mcpServers = extra?.useMcp ? config.mcpServers : undefined;
     const reservedToolCall = (tools?.length ?? 0) > 0 || (mcpServers?.length ?? 0) > 0;
-    try {
-      this.ledger.requireReserve(this.user, reservedToolCall ? config.reserveToolUsd : config.reservePlainUsd);
-    } catch (error) {
-      if (error instanceof BudgetExhausted) {
-        this.emit({ stage, status: "refused", requestedModel: model, tools, note: error.message });
-      }
-      throw error;
-    }
+    const reserveUsd = reservedToolCall ? config.reserveToolUsd : config.reservePlainUsd;
+
+    this.reserve(stage, model, tools, reserveUsd);
     this.emit({ stage, status: "start", requestedModel: model, tools, note });
 
     const call = () =>
@@ -116,19 +148,36 @@ export class Run {
           tools,
           mcpServers,
           maxTokens: extra?.maxTokens,
+          guardrails: this.guardrails(),
+          endUser: config.serviceKeyMode ? `${config.endUserPrefix}${this.user}` : undefined,
+          endUserBudget: config.serviceKeyMode && account.endUserBudget ? account.endUserBudget : undefined,
         },
         config.baseUrl,
         config.mock,
       );
 
-    let result;
+    let result: ChatResult;
     try {
       result = await call();
     } catch (error) {
-      // A tool loop that outruns the edge timeout comes back as 502 or 504 with
-      // an HTML page. One retry covers it, and the attempt stays in the log.
-      if (error instanceof OtariError && (error.status === 502 || error.status === 504)) {
-        this.emit({ stage, status: "info", note: `edge returned ${error.status}, retrying once` });
+      // A tool loop that outruns the edge timeout comes back as an HTML 502 or
+      // 504. Otari may still have run, and billed, the call behind it, and the
+      // edge page carries no cost. So the lost attempt is booked at its reserve,
+      // the worst case this stage was allowed to spend, and marked as an
+      // estimate. Under-counting would let the agent spend past its bond.
+      if (error instanceof OtariError && error.edge && (error.status === 502 || error.status === 504)) {
+        const estimate = Math.min(reserveUsd, this.ledger.remaining(this.user));
+        const remaining = this.ledger.debit(this.user, estimate);
+        this.sync();
+        this.emit({
+          stage,
+          status: "info",
+          costUsd: estimate,
+          estimated: true,
+          remainingUsd: remaining,
+          note: `edge returned ${error.status} with no receipt, booked the reserve as an estimate and retrying once`,
+        });
+        this.reserve(stage, model, tools, reserveUsd);
         result = await call();
       } else {
         throw error;
@@ -138,41 +187,88 @@ export class Run {
     const remaining = this.ledger.debit(this.user, result.costUsd);
     this.sync();
 
+    const notes = [note];
+    if (result.fallback) {
+      notes.push(
+        `routing fallback: ${result.provider ? `${result.provider}/` : ""}${result.servedModel} answered after ${result.attempts} attempt${result.attempts === 1 ? "" : "s"}`,
+      );
+    }
+    for (const verdict of result.guardrails) {
+      if (verdict.status === "unavailable" && !this.warnedUnavailable.has(verdict.profile)) {
+        this.warnedUnavailable.add(verdict.profile);
+        notes.push(`guardrail ${verdict.profile} could not run (${verdict.reason ?? "unknown"}), served unchecked`);
+      } else if (verdict.status === "evaluated") {
+        notes.push(`guardrail ${verdict.profile} passed${typeof verdict.score === "number" ? ` (score ${verdict.score.toFixed(2)})` : ""}`);
+      }
+    }
+    if (result.endUserBudget) notes.push(`otari end-user budget ${result.endUserBudget}`);
+
     this.emit({
       stage,
       status: "ok",
       requestedModel: result.requestedModel,
       servedModel: result.servedModel,
+      provider: result.provider,
+      fallback: result.fallback,
       promptTokens: result.promptTokens,
       completionTokens: result.completionTokens,
       costUsd: result.costUsd,
       remainingUsd: remaining,
       tools,
-      note:
-        result.servedModel !== result.requestedModel
-          ? `served by ${result.servedModel} instead of ${result.requestedModel}, a fallback took the call`
-          : note,
+      guardrails: result.guardrails.length > 0 ? result.guardrails : undefined,
+      note: notes.join(" · "),
     });
 
     return result.text;
   }
 
-  async execute(): Promise<RunOutcome> {    try {
+  async execute(): Promise<RunOutcome> {
+    try {
       await this.pipeline();
     } catch (error) {
-      if (error instanceof BudgetExhausted) {
-        this.emit({ stage: "ledger", status: "refused", note: error.message });
-        this.finish("stopped", `meter empty: ${error.message}`);
-      } else if (error instanceof OtariError) {
-        this.emit({ stage: "ledger", status: "error", note: `gateway refused the call: ${error.detail}` });
-        this.finish("stopped", error.detail || `gateway error ${error.status}`);
-      } else {
-        const message = error instanceof Error ? error.message : String(error);
-        this.emit({ stage: "ledger", status: "error", note: message });
-        this.finish("stopped", message);
-      }
+      this.settleError(error);
     }
     return this.outcome;
+  }
+
+  private settleError(error: unknown): void {
+    if (error instanceof BudgetExhausted) {
+      // The refusing stage already logged the refusal; book the ending only.
+      this.finish("stopped", `meter empty: ${error.message}`, "purse_reserve");
+      return;
+    }
+    if (error instanceof OtariError && error.code === "guardrail_violation") {
+      // Otari refused the call before any provider saw it: a breach caught by
+      // the platform, not by the agent's own rulebook. Same consequence.
+      const flagged = error.guardrails?.map((entry) => entry.profile).join(", ") || config.guardrailProfile;
+      const taken = this.ledger.slash(this.user, this.ledger.remaining(this.user));
+      this.sync();
+      this.emit({ stage: "guard", status: "refused", note: `otari guardrail ${flagged} blocked the call: ${error.detail}` });
+      this.emit({
+        stage: "ledger",
+        status: "info",
+        costUsd: taken,
+        remainingUsd: this.ledger.remaining(this.user),
+        note: `bond slashed by ${money(taken)} because Otari's guardrail flagged the input`,
+      });
+      this.finish("slashed", `otari guardrail ${flagged}`, "otari_guardrail");
+      return;
+    }
+    if (error instanceof OtariError && error.code === "budget_exceeded") {
+      // Otari's own budget gate refused, before the app meter ran out.
+      const scope = error.budgetScope ? ` (scope: ${error.budgetScope})` : "";
+      this.emit({ stage: "ledger", status: "refused", note: `otari budget gate refused${scope}: ${error.detail}` });
+      this.finish("stopped", `otari budget${scope}: ${error.detail}`, "otari_budget");
+      return;
+    }
+    if (error instanceof OtariError) {
+      this.emit({ stage: "ledger", status: "error", note: `gateway refused the call: ${error.detail}` });
+      this.finish("stopped", error.detail || `gateway error ${error.status}`, "error");
+      return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    this.emit({ stage: "ledger", status: "error", note: message });
+    this.finish("stopped", message, "error");
   }
 
   private async pipeline(): Promise<void> {
@@ -181,22 +277,27 @@ export class Run {
     for (const rule of GUARD_RULES) {
       if (rule.test.test(this.task)) {
         this.emit({ stage: "guard", status: "refused", note: `${rule.id}: ${rule.note}` });
-        const penalty = this.ledger.remaining(this.user);
-        this.ledger.slash(this.user, penalty);
+        const taken = this.ledger.slash(this.user, this.ledger.remaining(this.user));
         this.sync();
         this.emit({
           stage: "ledger",
           status: "info",
-          costUsd: penalty,
+          costUsd: taken,
           remainingUsd: this.ledger.remaining(this.user),
           note: "bond slashed, nothing was spent on the task itself",
         });
-        this.finish("slashed", `guardrail ${rule.id}`);
+        this.finish("slashed", `rulebook ${rule.id}`, "purse_guard");
         return;
       }
     }
 
-    this.emit({ stage: "guard", status: "ok", note: "no rule matched" });
+    this.emit({
+      stage: "guard",
+      status: "ok",
+      note: config.guardrailProfile
+        ? `no rule matched; Otari guardrail ${config.guardrailProfile} checks every call from here in block mode`
+        : "no rule matched",
+    });
 
     const policy = config.mcpServers.length > 0
       ? await this.stage(
@@ -250,10 +351,14 @@ export class Run {
       { maxTokens: 500 },
     );
 
+    // Research output is web content. Passing it on as input means Otari's
+    // guardrail screens it here, so an injection planted on a page it read
+    // is caught before the agent acts on it.
     const verified = await this.stage(
       "verify",
       config.loopModel,
       [
+        { role: "system", content: SYSTEM },
         { role: "user", content: `Task: ${this.task}\n\nFacts:\n${research}\n\nUse the code execution tool to compute the arithmetic in this task. Then answer in two lines.\nLine 1: what the code printed.\nLine 2: start with VERIFIED: and give the computed result.` },
       ],
       ["otari_code_execution"],
@@ -285,17 +390,19 @@ export class Run {
     );
 
     const parsed = parseDecision(decision);
+    const reason = parsed.reason.replace(/[.\s]+$/, "");
 
     this.sync();
+    const left = this.ledger.remaining(this.user);
     if (!parsed.factsComplete) {
       this.emit({
         stage: "ledger",
         status: "info",
         costUsd: 0,
-        remainingUsd: this.ledger.remaining(this.user),
-        note: `${parsed.reason.replace(/[.\s]+$/, "")}. nothing was paid out and the bond returns unspent.`,
+        remainingUsd: left,
+        note: `${reason}. no payout; inference already billed stays spent, ${money(left)} stays in the bond`,
       });
-      this.finish("stopped", parsed.reason);
+      this.finish("stopped", parsed.reason, "settlement");
       return;
     }
 
@@ -303,16 +410,17 @@ export class Run {
       stage: "ledger",
       status: "ok",
       costUsd: 0,
-      remainingUsd: this.ledger.remaining(this.user),
-      note: `${parsed.reason.replace(/[.\s]+$/, "")}. unspent bond returned.`,
+      remainingUsd: left,
+      note: `${reason}. released with no penalty, ${money(left)} stays in the bond`,
     });
-    this.finish("released", parsed.reason);
+    this.finish("released", parsed.reason, "settlement");
   }
 
-  private finish(verdict: RunOutcome["verdict"], reason: string): void {
+  private finish(verdict: RunOutcome["verdict"], reason: string, endedBy: RunOutcome["endedBy"]): void {
     this.sync();
     this.outcome.verdict = verdict;
     this.outcome.reason = reason;
+    this.outcome.endedBy = endedBy;
     this.outcome.endedAt = new Date().toISOString();
   }
 }

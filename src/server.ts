@@ -1,4 +1,5 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { config } from "./config.js";
@@ -13,12 +14,35 @@ const app = express();
 app.use(express.json({ limit: "64kb" }));
 app.use(express.static(join(here, "..", "public")));
 
+// A public deploy spends real bonds on a real Otari key, so every API route
+// can sit behind a shared access code. Unset means open, for local use.
+function codeMatches(given: string): boolean {
+  const expected = Buffer.from(config.accessCode);
+  const actual = Buffer.from(given);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+app.use("/api", (req, res, next) => {
+  if (!config.accessCode) return next();
+  const header = req.header("x-purse-code") ?? "";
+  // EventSource cannot set headers, so the stream route also takes ?code=.
+  const query = typeof req.query.code === "string" ? req.query.code : "";
+  if (codeMatches(header) || codeMatches(query)) return next();
+  res.status(401).json({ error: "access code required" });
+});
+
+app.get("/healthz", (_req, res) => {
+  res.json({ ok: true });
+});
+
 app.get("/api/state", (_req, res) => {
   res.json({
     mock: config.mock,
     loopModel: config.loopModel,
     settleModel: config.settleModel,
     mcpServers: config.mcpServers.map((server) => ({ name: server.name, url: server.url })),
+    guardrailProfile: config.guardrailProfile || null,
+    serviceKeyMode: config.serviceKeyMode,
     accounts: ledger.list().map((account) => ({
       id: account.id,
       label: account.label,
@@ -126,6 +150,7 @@ app.post("/api/reset", (_req, res) => {
 app.listen(config.port, () => {
   console.log(`purse on http://localhost:${config.port}`);
   if (config.mock) console.log("PURSE_MOCK=1, every model call is simulated");
+  if (!config.accessCode) console.log("PURSE_ACCESS_CODE is not set, the API is open to anyone who can reach this port");
   if (config.loopModel === config.settleModel) {
     console.warn("loop and settle models are the same id, set PURSE_SETTLE_MODEL to a second open-weight model");
   }
